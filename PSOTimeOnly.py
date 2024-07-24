@@ -20,7 +20,7 @@ class ParticleSwarmTimeOnly(Experiment):
 
         options = {'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'k': 100, 'p': 2}
         optimizer = ps.discrete.BinaryPSO(n_particles=100, dimensions=100, options=options)
-        cost, pos = optimizer.optimize(objective_function, iters=10)
+        cost, pos = optimizer.optimize(objective_function, iters=1000)
         pos = list(map(discrete_activate_funct, pos))
         self.write_results(
             "TravelTime",
