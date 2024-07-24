@@ -15,7 +15,7 @@ class DatabaseInit:
         # Now we create our tables
         self.cur.execute(
             """
-            CREATE TABLE Models (
+            CREATE TABLE IF NOT EXISTS Models (
                 ID INTEGER PRIMARY KEY,
                 ModelName TEXT NOT NULL,
                 Description TEXT,
@@ -26,7 +26,7 @@ class DatabaseInit:
         )
         self.cur.execute(
             """
-            CREATE TABLE TravelTime (
+            CREATE TABLE IF NOT EXISTS TravelTime (
                 ID INTEGER PRIMARY KEY,
                 min REAL,
                 q1 REAL,
@@ -43,7 +43,7 @@ class DatabaseInit:
         )
         self.cur.execute(
             """
-            CREATE TABLE SocialCost (
+            CREATE TABLE IF NOT EXISTS SocialCost (
                 ID INTEGER PRIMARY KEY,
                 min REAL,
                 q1 REAL,

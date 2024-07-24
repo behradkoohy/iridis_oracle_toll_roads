@@ -34,10 +34,9 @@ if __name__ == "__main__":
     parser.add_argument('VOTSeed', type=int, help='The VOT seed value')
     parser.add_argument('TIMESeed', type=int, help='The TIME seed value')
 
-    db_manager = DatabaseCreate()
     # Parse the command line arguments
     args = parser.parse_args()
-
+    db_manager = DatabaseCreate(db_path=args.db_path)
     # Verify the ModelName is in the dictionary and get the corresponding class
     model_class = model_dict.get(args.ModelName)
     if not model_class:
