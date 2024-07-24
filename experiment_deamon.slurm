@@ -6,6 +6,6 @@
 #SBATCH --nodes=1
 #SBATCH --partition=amd
 
-source bin/activate
+source venv/bin/activate
 
 python main.py $1 $2 $3 $4 $5 $6
