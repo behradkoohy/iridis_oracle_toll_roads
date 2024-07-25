@@ -3,7 +3,7 @@ import sqlite3
 import numpy.random as nprand
 
 
-class Experiment():
+class Experiment:
 
     def __init__(self, db_path, ID, model_name, description, votseed, timeseed):
         # passed in parameters
@@ -22,6 +22,8 @@ class Experiment():
 
         self.car_vot_upperbound = 9.5
         self.car_vot_lowerbound = 2.5
+
+        self.db_tables = {"TravelTime", "SocialCost", "CombinedCost"}
 
     def generate_car_time_distribution(self):
 
@@ -45,21 +47,25 @@ class Experiment():
 
     def generate_car_vot_distribution(self):
         nprand.seed(self.votseed)
-        car_vot = nprand.uniform(self.car_vot_lowerbound, self.car_vot_upperbound, self.n_cars)
+        car_vot = nprand.uniform(
+            self.car_vot_lowerbound, self.car_vot_upperbound, self.n_cars
+        )
         return car_vot
 
     def check_table_valid(self, prop_table):
-        return prop_table in {'TravelTime', 'SocialCost'}
+        return prop_table in self.db_tables
 
     def write_results(self, table, min, Q1, med, mean, Q3, max, std, atkidx, ginicoef):
         if not self.check_table_valid(table):
-            raise ValueError("results: status must be one of %r." % {'TravelTime', 'SocialCost'})
+            raise ValueError("results: status must be one of %r." % self.db_tables)
         self.conn = sqlite3.connect(self.db_path)
         self.cur = self.conn.cursor()
-        insert_statement = f'''
+        insert_statement = f"""
             INSERT INTO {table} (ID, min, q1, med, mean, q3, max, stdev, atkidx, ginicoef)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        '''
-        self.cur.execute(insert_statement, (self.ID, min, Q1, med, mean, Q3, max, std, atkidx, ginicoef))
+        """
+        self.cur.execute(
+            insert_statement,
+            (self.ID, min, Q1, med, mean, Q3, max, std, atkidx, ginicoef),
+        )
         self.conn.commit()
-

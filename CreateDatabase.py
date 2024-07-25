@@ -4,6 +4,7 @@ from datetime import datetime
 
 
 class DatabaseInit:
+    # noinspection SqlResolve
     def __init__(self, db_path=None):
         if db_path == None:
             now = datetime.now()
@@ -58,11 +59,30 @@ class DatabaseInit:
             );
         """
         )
+        self.cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS CombinedCost (
+                ID INTEGER PRIMARY KEY,
+                min REAL,
+                q1 REAL,
+                med REAL,
+                mean REAL,
+                q3 REAL,
+                max REAL,
+                stdev REAL,
+                atkidx REAL,
+                ginicoef REAL,
+                FOREIGN KEY(ID) REFERENCES Models(ID)
+            );
+        """
+        )
         self.conn.commit()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Insert a new model into the database.')
-    parser.add_argument('db_path', type=str, help='The path to the SQLite database')
+    parser = argparse.ArgumentParser(
+        description="Insert a new model into the database."
+    )
+    parser.add_argument("db_path", type=str, help="The path to the SQLite database")
     args = parser.parse_args()
     db = DatabaseInit(args.db_path)

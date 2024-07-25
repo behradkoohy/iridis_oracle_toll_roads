@@ -3,8 +3,10 @@ This script should be called by a bash script that sets up jobs for iridis.
 
 Its' primary function is to create an entry in a database that stores the results from the experiments
 """
+
 import sqlite3
 from datetime import datetime
+
 
 class DatabaseCreate:
     def __init__(self, db_path=None):
@@ -47,6 +49,23 @@ class DatabaseCreate:
         self.cur.execute(
             """
             CREATE TABLE IF NOT EXISTS SocialCost (
+                ID INTEGER PRIMARY KEY,
+                min REAL,
+                q1 REAL,
+                med REAL,
+                mean REAL,
+                q3 REAL,
+                max REAL,
+                stdev REAL,
+                atkidx REAL,
+                ginicoef REAL,
+                FOREIGN KEY(ID) REFERENCES Models(ID)
+            );
+        """
+        )
+        self.cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS CombinedCost (
                 ID INTEGER PRIMARY KEY,
                 min REAL,
                 q1 REAL,

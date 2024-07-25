@@ -1,16 +1,41 @@
 #!/bin/bash
 
-dbpath="results.db"
+dbpath="big_results.db"
 
 source venv/bin/activate
 
 python CreateDatabase.py $dbpath
 
-model_name="PSOTimeOnly"
-description="Calculate-the-optimal-solution-using-PSO-Time-Only"
+#model_name="PSOTimeOnly"
+#description="none"
+#vot_seed=0
+#for i in {1..100}
+#do
+#  sbatch experiment_deamon.slurm $dbpath $i $model_name $description $vot_seed $i
+#done
+models=(
+    "PSOTimeOnly"
+    "PSOFixedPriceTTOpt"
+    "PSOFixedPriceSCOpt"
+    "PSOFixedPriceCCOpt"
+    "PSOTimestepPriceTTOpt"
+    "PSOTimestepPriceSCOpt"
+    "PSOTimestepPriceCCOpt"
+    "PSOFUnboundPriceTTOpt"
+    "PSOFUnboundPriceSCOpt"
+    "PSOFUnboundPriceCCOpt"
+    "PSOLinearPriceTTOpt"
+    "PSOLinearPriceSCOpt"
+    "PSOLinearPriceCCOpt"
+)
+
+description="none"
 vot_seed=0
 
-for i in {10..100}
+for model_name in "${models[@]}"
 do
-  sbatch experiment_deamon.slurm $dbpath $i $model_name $description $vot_seed $i
+  for i in {1..100}
+  do
+    sbatch experiment_deamon.slurm $dbpath $i $model_name $description $vot_seed $i
+  done
 done

@@ -6,11 +6,13 @@ from numpy import min as nmin
 from numpy import max as nmax
 import inequalipy as ineq
 
+
 def reduced_is_simulation_complete(roadQueues, time, timesteps):
     if time >= timesteps + 1:
         return True
     else:
         return False
+
 
 def volume_delay_function(a, b, c, t0, v):
     """
@@ -28,10 +30,13 @@ def volume_delay_function(a, b, c, t0, v):
     b = 4.8
     return t0 * (1 + (a * pow((v / c), b)))
 
+
 def get_cars_leaving_during_trip(time_out_car, road, time, max_travel_eta):
     road_dict = time_out_car[road]  # Pre-fetch the dictionary for the specific road
     end_time = round(max_travel_eta) + 1  # Calculate range endpoint once
-    timesteps_to_check = [ti for ti in range(time + 1, round(end_time) + 1) if road_dict[ti] > 0]
+    timesteps_to_check = [
+        ti for ti in range(time + 1, round(end_time) + 1) if road_dict[ti] > 0
+    ]
     return {ti: road_dict[ti] for ti in timesteps_to_check}
 
 
@@ -49,7 +54,9 @@ def alternative_get_new_travel_times(
         best_known_travel_time = road_vdf(len(new_road_queues[road]))
         max_travel_eta = time + best_known_travel_time
         cars_on_road = len(new_road_queues[road])
-        cars_leaving_during_trip = get_cars_leaving_during_trip(time_out_car, road, time, max_travel_eta)
+        cars_leaving_during_trip = get_cars_leaving_during_trip(
+            time_out_car, road, time, max_travel_eta
+        )
         cumsum_base = 0
         cars_leaving_cumsum = [
             cumsum_base := cumsum_base + n for n in cars_leaving_during_trip.values()
@@ -68,83 +75,90 @@ def alternative_get_new_travel_times(
 
 
 def reduced_evaluate_solution(
-            solution, car_dist_arrival, timesteps, post_eval=False, seq_decisions=False
-    ):
-        """
-        solution: list of roads for the vehicles to take, i.e. [1,1,2,2,1,1,2,....,]
-        car_dist_arrival: list of arrival times of vehicles, length n, i.e. [1,1,2,3,...,30]
-        """
-        if len(solution) != len(car_dist_arrival):
-            raise Exception("Length of solution and car_dist_arrival must be equal")
-        roadQueues = {r: [] for r in set(solution)}
-        roadVDFS = {
-            1: partial(volume_delay_function, 0.656, 4.8, 15, 20),
-            2: partial(volume_delay_function, 0.656, 4.8, 30, 20),
-        }
-        roadTravelTime = {r: roadVDFS[r](0) for r in roadVDFS.keys()}
-        time_out_car = {r: defaultdict(int) for r in roadVDFS.keys()}
-        arrived_vehicles = []
-        time = 0
-        arrival_timestep_dict = Counter(car_dist_arrival)
-        sol_deque = deque(solution)
-        while not reduced_is_simulation_complete(roadQueues, time, timesteps):
-            # get the new vehicles at this timestep
+    solution, car_dist_arrival, timesteps, post_eval=False, seq_decisions=False
+):
+    """
+    solution: list of roads for the vehicles to take, i.e. [1,1,2,2,1,1,2,....,]
+    car_dist_arrival: list of arrival times of vehicles, length n, i.e. [1,1,2,3,...,30]
+    """
+    if len(solution) != len(car_dist_arrival):
+        raise Exception("Length of solution and car_dist_arrival must be equal")
+    roadQueues = {r: [] for r in set(solution)}
+    roadVDFS = {
+        1: partial(volume_delay_function, 0.656, 4.8, 15, 20),
+        2: partial(volume_delay_function, 0.656, 4.8, 30, 20),
+    }
+    roadTravelTime = {r: roadVDFS[r](0) for r in roadVDFS.keys()}
+    time_out_car = {r: defaultdict(int) for r in roadVDFS.keys()}
+    arrived_vehicles = []
+    time = 0
+    arrival_timestep_dict = Counter(car_dist_arrival)
+    sol_deque = deque(solution)
+    while not reduced_is_simulation_complete(roadQueues, time, timesteps):
+        # get the new vehicles at this timestep
 
-            roadTravelTime, roadQueues, arrived_vehicles = alternative_get_new_travel_times(
-                roadQueues, roadVDFS, time, arrived_vehicles, time_out_car
-            )
+        roadTravelTime, roadQueues, arrived_vehicles = alternative_get_new_travel_times(
+            roadQueues, roadVDFS, time, arrived_vehicles, time_out_car
+        )
 
-            # Add new vehicles from here
-            num_vehicles_arrived = arrival_timestep_dict[time]
-            if num_vehicles_arrived is None:
-                num_vehicles_arrived = 0
-            # just collect the decision of the vehicles
-            decisions = [sol_deque.popleft() for _ in range(num_vehicles_arrived)]
-            # add vehicles to the new queue
-            for decision in decisions:
-                roadQueues[decision] = roadQueues[decision] + [
-                    (
-                        decision,
-                        time,
-                        time + roadTravelTime[decision],
-                        time + roadTravelTime[decision],
-                    )
-                ]
-                time_out_car[decision][round(time + roadTravelTime[decision])] = (
-                        time_out_car[decision][round(time + roadTravelTime[decision])] + 1
+        # Add new vehicles from here
+        num_vehicles_arrived = arrival_timestep_dict[time]
+        if num_vehicles_arrived is None:
+            num_vehicles_arrived = 0
+        # just collect the decision of the vehicles
+        decisions = [sol_deque.popleft() for _ in range(num_vehicles_arrived)]
+        # add vehicles to the new queue
+        for decision in decisions:
+            roadQueues[decision] = roadQueues[decision] + [
+                (
+                    decision,
+                    time,
+                    time + roadTravelTime[decision],
+                    time + roadTravelTime[decision],
                 )
-                if seq_decisions:
-                    (
-                        roadTravelTime,
-                        roadQueues,
-                        arrived_vehicles,
-                    ) = alternative_get_new_travel_times(
-                        roadQueues, roadVDFS, time, arrived_vehicles, time_out_car
-                    )
-
-            time += 1
-        # Anything which is still in road queue can be added to arrived vehicles
-        for road, queue in roadQueues.items():
-            arrived_vehicles = arrived_vehicles + [car for car in roadQueues[road]]
-
-        travel_time = [c[3] - c[1] for c in arrived_vehicles]
-
-        if post_eval:
-            return (
-                nmin(travel_time),
-                quantile(travel_time, 0.25),
-                mean(travel_time),
-                median(travel_time),
-                quantile(travel_time, 0.75),
-                nmax(travel_time),
-                std(travel_time),
-                ineq.gini(travel_time),
-                ineq.atkinson.index(travel_time, epsilon=0.5),
+            ]
+            time_out_car[decision][round(time + roadTravelTime[decision])] = (
+                time_out_car[decision][round(time + roadTravelTime[decision])] + 1
             )
-        return -mean(travel_time)
+            if seq_decisions:
+                (
+                    roadTravelTime,
+                    roadQueues,
+                    arrived_vehicles,
+                ) = alternative_get_new_travel_times(
+                    roadQueues, roadVDFS, time, arrived_vehicles, time_out_car
+                )
+
+        time += 1
+    # Anything which is still in road queue can be added to arrived vehicles
+    for road, queue in roadQueues.items():
+        arrived_vehicles = arrived_vehicles + [car for car in roadQueues[road]]
+
+    travel_time = [c[3] - c[1] for c in arrived_vehicles]
+
+    if post_eval:
+        return (
+            nmin(travel_time),
+            quantile(travel_time, 0.25),
+            mean(travel_time),
+            median(travel_time),
+            quantile(travel_time, 0.75),
+            nmax(travel_time),
+            std(travel_time),
+            ineq.gini(travel_time),
+            ineq.atkinson.index(travel_time, epsilon=0.5),
+        )
+    return -mean(travel_time)
 
 
-def convert_to_vot_sol(solution, car_dist_arrival, car_vot_dist, timesteps, post_eval=False, seq_decisions=False):
+def convert_to_vot_sol(
+    solution,
+    car_dist_arrival,
+    car_vot_dist,
+    timesteps,
+    post_eval=False,
+    seq_decisions=False,
+):
     """
     solution: list of roads for the vehicles to take, i.e. [1,1,2,2,1,1,2,....,]
     car_dist_arrival: list of arrival times of vehicles, length n, i.e. [1,1,2,3,...,30]
@@ -176,7 +190,7 @@ def convert_to_vot_sol(solution, car_dist_arrival, car_vot_dist, timesteps, post
         decisions = [sol_deque.popleft() for _ in range(num_vehicles_arrived)]
         cars_arrived = [car_vot_deque.popleft() for _ in range(num_vehicles_arrived)]
         # add vehicles to the new queue
-        for (decision, vot) in zip(decisions, cars_arrived):
+        for decision, vot in zip(decisions, cars_arrived):
             roadQueues[decision] = roadQueues[decision] + [
                 (
                     decision,
@@ -186,17 +200,17 @@ def convert_to_vot_sol(solution, car_dist_arrival, car_vot_dist, timesteps, post
                 )
             ]
             time_out_car[decision][round(time + roadTravelTime[decision])] = (
-                    time_out_car[decision][round(time + roadTravelTime[decision])] + 1
+                time_out_car[decision][round(time + roadTravelTime[decision])] + 1
             )
             if seq_decisions:
-                roadTravelTime, roadQueues, arrived_vehicles = alternative_get_new_travel_times(
-                    roadQueues, roadVDFS, time, arrived_vehicles, time_out_car
+                roadTravelTime, roadQueues, arrived_vehicles = (
+                    alternative_get_new_travel_times(
+                        roadQueues, roadVDFS, time, arrived_vehicles, time_out_car
+                    )
                 )
         time += 1
     for road, queue in roadQueues.items():
-        arrived_vehicles = arrived_vehicles + [
-            car for car in roadQueues[road]
-        ]
+        arrived_vehicles = arrived_vehicles + [car for car in roadQueues[road]]
     travel_time = [c[3] - c[1] for c in arrived_vehicles]
     time_cost_burden = [(c[3] - c[1]) * c[2] for c in arrived_vehicles]
     if post_eval:

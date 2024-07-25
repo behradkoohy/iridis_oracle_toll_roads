@@ -4,7 +4,7 @@
 #SBATCH --mail-user=bk2g18@soton.ac.uk
 #SBATCH --time=22:00:00
 #SBATCH --nodes=1
-#SBATCH --partition=ecsstaff
+#SBATCH --partition=ecsstudents
 
 source venv/bin/activate
 
