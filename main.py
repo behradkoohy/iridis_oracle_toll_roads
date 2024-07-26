@@ -25,7 +25,7 @@ import argparse
 # }
 model_dict = {
     "PSOTimeOnly": ParticleSwarmTimeOnly,
-    "PSOTimestepPriceSCOpt": ParticleSwarmTimestepPriceSC,
+    "PSOFTimestepPriceSCOpt": ParticleSwarmTimestepPriceSC,
     "PSOFTimestepPriceTTOpt": ParticleSwarmTimestepPriceTT,
     "PSOFTimestepPriceCCOpt": ParticleSwarmTimestepPriceCC,
     "PSOFixedPriceTTOpt": ParticleSwarmFixedPriceTT,
