@@ -2,7 +2,7 @@ from Experiment import Experiment
 
 import pyswarms as ps
 from TimestepPriceUtils import evaluate_solution_linearprice
-
+from PSO_CONFIG import *
 # TODO: you need to change some parameters to make the linear cost model work.
 
 
@@ -36,9 +36,9 @@ class ParticleSwarmLinearPriceSC(Experiment):
         bounds = (min_bound, max_bound)
         options = {"c1": 0.5, "c2": 0.3, "w": 0.9}
         optimizer = ps.single.GlobalBestPSO(
-            n_particles=10, dimensions=4, options=options, bounds=bounds
+            n_particles=N_PARTICLES, dimensions=4, options=options, bounds=bounds
         )
-        cost, pos = optimizer.optimize(objective_function, iters=50)
+        cost, pos = optimizer.optimize(objective_function, iters=N_ITERATIONS)
         travel_time, social_cost, combined_cost = evaluate_solution_linearprice(
             {1: (pos[0], pos[1]), 2: (pos[2], pos[3])},
             car_dist_arrival,

@@ -49,8 +49,8 @@ class ParticleSwarmTimestepPriceTT(Experiment):
         min_bound = [-2 for _ in range((self.timesteps + 1) * 2)]
         bounds = (min_bound, max_bound)
         options = {"c1": 0.5, "c2": 0.3, "w": 0.9}
-        # optimizer = ps.single.GlobalBestPSO(n_particles=100, dimensions=100, options=options, bounds=bounds)
-        # cost, pos = optimizer.optimize(objective_function, iters=1000)
+        # optimizer = ps.single.GlobalBestPSO(n_particles=N_PARTICLES, dimensions=100, options=options, bounds=bounds)
+        # cost, pos = optimizer.optimize(objective_function, iters=N_ITERATIONS)
         optimizer = IntOptimizerPSO(
             n_particles=N_PARTICLES, dimensions=62, options=options, bounds=bounds
         )

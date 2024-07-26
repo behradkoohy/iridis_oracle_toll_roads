@@ -2,7 +2,10 @@
 
 dbpath="big_results.db"
 
-source venv/bin/activate
+#source venv/bin/activate
+module load conda
+
+source activate benchmarks
 
 python CreateDatabase.py $dbpath
 
@@ -18,9 +21,9 @@ models=(
     "PSOFixedPriceTTOpt"
     "PSOFixedPriceSCOpt"
     "PSOFixedPriceCCOpt"
-    "PSOTimestepPriceTTOpt"
-    "PSOTimestepPriceSCOpt"
-    "PSOTimestepPriceCCOpt"
+    "PSOFTimestepPriceTTOpt"
+    "PSOFTimestepPriceSCOpt"
+    "PSOFTimestepPriceCCOpt"
     "PSOFUnboundPriceTTOpt"
     "PSOFUnboundPriceSCOpt"
     "PSOFUnboundPriceCCOpt"

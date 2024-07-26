@@ -3,7 +3,11 @@
 #SBATCH --time=11:00:00
 #SBATCH --nodes=1
 #SBATCH --partition=batch
+#SBATCH --output=run_outputs/%j.out
 
-source venv/bin/activate
+module load conda
+source activate benchmarks
+
+#source venv/bin/activate
 
 python main.py $1 $2 $3 $4 $5 $6
