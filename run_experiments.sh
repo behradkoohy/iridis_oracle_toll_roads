@@ -31,11 +31,14 @@ models=(
 
 description="none"
 vot_seed=0
+id_counter=0
 
 for model_name in "${models[@]}"
 do
-  for i in {1..100}
+  for ((i=0; i<50; i++))
   do
-    sbatch experiment_deamon.slurm $dbpath $i $model_name $description $vot_seed $i
+    sbatch experiment_deamon.slurm $dbpath $id_counter $model_name $description $vot_seed $i
+    id_counter=$((id_counter + 1))
+    
   done
 done

@@ -1,10 +1,8 @@
 #!/bin/bash
 
-#SBATCH --mail-type=ALL
-#SBATCH --mail-user=bk2g18@soton.ac.uk
-#SBATCH --time=22:00:00
+#SBATCH --time=11:00:00
 #SBATCH --nodes=1
-#SBATCH --partition=ecsstudents
+#SBATCH --partition=batch
 
 source venv/bin/activate
 

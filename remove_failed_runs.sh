@@ -1,3 +1,4 @@
 
 rm slurm-*
-rm results.db
+rm big_results.db
+
