@@ -14,7 +14,7 @@ from PSOLinearPriceCCOpt import ParticleSwarmLinearPriceCC
 from PSOTimeOnly import ParticleSwarmTimeOnly
 from ResultDatabaseManager import DatabaseCreate
 import argparse
-
+import sqlite3
 
 # model_dict = {
 #     "PSOTimeOnly": ParticleSwarmTimeOnly,
@@ -80,7 +80,7 @@ if __name__ == "__main__":
 
     # Prepare data tuple
     data = (args.ID, args.ModelName, args.Description, args.VOTSeed, args.TIMESeed)
-    db_manager.add_experiment(*data)
+    #db_manager.add_experiment(*data)
 
     # run the experiment
     experiment = model_dict[args.ModelName](args.db_path, *data)

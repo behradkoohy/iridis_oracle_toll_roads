@@ -1,13 +1,13 @@
 #!/bin/bash
 
-dbpath="big_results.db"
+dbpath="big_results_200cars.db"
 
 #source venv/bin/activate
 module load conda
 
 source activate benchmarks
 
-python CreateDatabase.py $dbpath
+#python CreateDatabase.py $dbpath
 
 #model_name="PSOTimeOnly"
 #description="none"
@@ -40,8 +40,9 @@ for model_name in "${models[@]}"
 do
   for ((i=0; i<50; i++))
   do
-    sbatch experiment_deamon.slurm $dbpath $id_counter $model_name $description $vot_seed $i
+    job_id=$(sbatch experiment_deamon.slurm $dbpath $id_counter $model_name $description $i $i)
+    #id_counter=$((id_counter + 1))
+    echo "scancel $job_id" >> cancel_running_jobs.sh
     id_counter=$((id_counter + 1))
-    
   done
 done

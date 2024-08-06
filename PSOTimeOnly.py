@@ -26,7 +26,7 @@ class ParticleSwarmTimeOnly(Experiment):
 
         options = {"c1": 0.5, "c2": 0.3, "w": 0.9, "k": int(N_PARTICLES/2) if N_PARTICLES > 50 else (N_PARTICLES-1) , "p": 2}
         optimizer = ps.discrete.BinaryPSO(
-            n_particles=N_PARTICLES, dimensions=100, options=options
+            n_particles=N_PARTICLES, dimensions=self.n_cars, options=options
         )
         cost, pos = optimizer.optimize(objective_function, iters=N_ITERATIONS)
         pos = list(map(discrete_activate_funct, pos))
