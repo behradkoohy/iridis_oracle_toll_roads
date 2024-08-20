@@ -5,6 +5,8 @@ from numpy import mean, quantile, median, std
 from numpy import min as nmin
 from numpy import max as nmax
 import inequalipy as ineq
+from numba import jit
+
 
 
 def reduced_is_simulation_complete(roadQueues, time, timesteps):
@@ -28,14 +30,24 @@ def volume_delay_function(a, b, c, t0, v):
     """
     a = 0.68
     b = 2.73
-    return t0 * (1 + (a * pow((v / c), b)))
+    return t0 * (1 + (a * ((v / c) ** b)))
 
+class QueueRanges:
+    def __init__(self):
+        self.starts = {0:0, 1:0}
+        self.stops = {0:0, 1:0}
+        self.queues = {0:{}, 1:{}}
+
+    def reset(self):
+        self.starts = {0: 0, 1: 0}
+        self.stops = {0: 0, 1: 0}
+        self.queues = {0: {}, 1: {}}
 
 def get_cars_leaving_during_trip(time_out_car, road, time, max_travel_eta):
     road_dict = time_out_car[road]  # Pre-fetch the dictionary for the specific road
     end_time = round(max_travel_eta) + 1  # Calculate range endpoint once
     timesteps_to_check = [
-        ti for ti in range(time + 1, round(end_time) + 1) if road_dict[ti] > 0
+        ti for ti in range(time + 1, end_time + 1) if road_dict[ti] > 0
     ]
     return {ti: road_dict[ti] for ti in timesteps_to_check}
 
