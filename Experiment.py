@@ -15,13 +15,13 @@ class Experiment:
         self.timeseed = timeseed
 
         # parameters that should mostly stay the same. if they need changing, changing in here should edit all exps
-        self.timesteps = 30
+        self.timesteps = 1000
         self.beta_dist_alpha = 5
         self.beta_dist_beta = 5
-        self.n_cars = 200
+        self.n_cars = 750
 
-        self.car_vot_upperbound = 9.5
-        self.car_vot_lowerbound = 2.5
+        self.car_vot_upperbound = 1.0
+        self.car_vot_lowerbound = 0.0
 
         self.db_tables = {"TravelTime", "SocialCost", "CombinedCost"}
 

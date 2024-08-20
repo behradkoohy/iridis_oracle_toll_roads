@@ -80,7 +80,7 @@ if __name__ == "__main__":
 
     # Prepare data tuple
     data = (args.ID, args.ModelName, args.Description, args.VOTSeed, args.TIMESeed)
-    #db_manager.add_experiment(*data)
+    db_manager.add_experiment(*data)
 
     # run the experiment
     experiment = model_dict[args.ModelName](args.db_path, *data)

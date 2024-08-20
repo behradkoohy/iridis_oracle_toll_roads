@@ -18,7 +18,10 @@ def quantal_decision(routes):
     # We pass in a list of 2-tuple - (road, utility) for each road.
     utility = [u[1] for u in routes]
     utility = [u - max(utility) for u in utility]
-    quantal_weights = shortform_quantal_function(utility)
+    #quantal_weights = shortform_quantal_function(utility)
+    quantal_weights = [
+        quantalify(x, np.asarray(utility, dtype=np.float32)) for x in utility
+    ]
     choice = choices(routes, weights=quantal_weights)
     # print("101:", [q/sum(quantal_weights) for q in quantal_weights], utility)
     return choice[0]
@@ -34,6 +37,20 @@ def get_utility(travel_time, econom_cost, vot):
 
 def generate_utility_funct(travel_time, econom_cost):
     return partial(get_utility, travel_time, econom_cost)
+
+def quantalify(r, rest, lambd=0.5):
+    # breakpoint()
+    return np.exp(lambd * r) / np.sum([np.exp(lambd * re) for re in rest], axis=-0)
+
+def new_quantal_decision(self, routes):
+    utility = [u[1] for u in routes]
+    utility = [u - max(utility) for u in utility]
+    quantal_weights = [
+        quantalify(x, np.asarray(utility, dtype=np.float32)) for x in utility
+    ]
+    choice = choices(routes, weights=quantal_weights)
+    # print("101:", [q/sum(quantal_weights) for q in quantal_weights], utility)
+    return choice[0]
 
 
 def evaluate_solution_timestepprice(

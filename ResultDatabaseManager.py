@@ -15,7 +15,7 @@ class DatabaseCreate:
             self.db_path = now.strftime("%d%m%y-%H%M%S") + ".db"
         else:
             self.db_path = db_path
-        self.conn = sqlite3.connect(self.db_path, timeout=300)
+        self.conn = sqlite3.connect(self.db_path, timeout=2000)
         self.cur = self.conn.cursor()
         # Now we create our tables
         self.cur.execute(

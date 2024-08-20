@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --time=30:00:00
+#SBATCH --time=6:00:00
 #SBATCH --nodes=1
 #SBATCH --partition=batch
-#SBATCH --output=run_outputs_200cars/%j.out
+#SBATCH --output=run_outputs_750cars/%j.out
 
 module load conda
 #source venv/bin/activate

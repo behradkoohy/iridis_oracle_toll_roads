@@ -52,7 +52,7 @@ class ParticleSwarmTimestepPriceSC(Experiment):
         # optimizer = ps.single.GlobalBestPSO(n_particles=N_PARTICLES, dimensions=100, options=options, bounds=bounds)
         # cost, pos = optimizer.optimize(objective_function, iters=N_ITERATIONS)
         optimizer = IntOptimizerPSO(
-            n_particles=N_PARTICLES, dimensions=62, options=options, bounds=bounds
+            n_particles=N_PARTICLES, dimensions=(self.timesteps*2)+2, options=options, bounds=bounds
         )
         cost, pos = optimizer.optimize(objective_function, iters=N_ITERATIONS)
         pos = list(map(discrete_activate_funct, pos))

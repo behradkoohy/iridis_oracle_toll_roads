@@ -1,6 +1,6 @@
 #!/bin/bash
 
-dbpath="big_results_200cars.db"
+dbpath="big_results_750cars_1000ts.db"
 
 #source venv/bin/activate
 module load conda
@@ -24,12 +24,12 @@ models=(
     "PSOFTimestepPriceTTOpt"
     "PSOFTimestepPriceSCOpt"
     "PSOFTimestepPriceCCOpt"
-    "PSOFUnboundPriceTTOpt"
-    "PSOFUnboundPriceSCOpt"
-    "PSOFUnboundPriceCCOpt"
-    "PSOLinearPriceTTOpt"
-    "PSOLinearPriceSCOpt"
-    "PSOLinearPriceCCOpt"
+#    "PSOFUnboundPriceTTOpt"
+#    "PSOFUnboundPriceSCOpt"
+#    "PSOFUnboundPriceCCOpt"
+#    "PSOLinearPriceTTOpt"
+#    "PSOLinearPriceSCOpt"
+#    "PSOLinearPriceCCOpt"
 )
 
 description="none"
