@@ -15,7 +15,7 @@ import numpy.random as nprand
 from RLUtils import quick_get_new_travel_times
 from TimeOnlyUtils import QueueRanges, volume_delay_function
 
-n_cars = 500
+n_cars = 850
 n_timesteps = 1000
 # timeseed = 0
 # votseed = 0
@@ -59,6 +59,10 @@ class simulation_env(ParallelEnv):
         self.agent_reward_norms_vars = {agent: None for agent in range(self.num_routes)}
 
         self.agent_vdf_cache = {agent: {} for agent in range(self.num_routes)}
+
+        self.agent_price_range = {agent: None for agent in range(self.num_routes)}
+        self.agent_maxes = {agent: None for agent in range(self.num_routes)}
+        self.agent_mins = {agent: None for agent in range(self.num_routes)}
 
 
     def update_rolling_norms(self, agent, new_value):
@@ -179,6 +183,11 @@ class simulation_env(ParallelEnv):
         self.arrival_timestep_dict = Counter(self.car_dist_arrival)
         # self.roadPrices = {r: 20.0 for r in self.roadVDFS.keys()}
         self.roadPrices = {0: randint(1,40), 1: randint(1,40)}
+
+        self.agent_price_range = {agent: 0 for agent in range(self.num_routes)}
+        self.agent_maxes = {agt: price for agt, price in self.roadPrices.items()}
+        self.agent_mins = {agt: price for agt, price in self.roadPrices.items()}
+
         self.queues_manager.reset()
 
         self.time_out_car = {r: defaultdict(int) for r in self.roadVDFS.keys()}
@@ -225,13 +234,19 @@ class simulation_env(ParallelEnv):
             self.agents = []
             return ({} for _ in range(self.num_routes))
 
-
-
         # update the price of the road
         for agent_name, action in actions.items():
             agent_id = self.agent_name_mapping[agent_name]
             action = action - 1
+
+            # update the price ranges, used in the debugging/tracking
             self.roadPrices[agent_id] = self.pricing_dict[action](self.roadPrices[agent_id])
+            if self.roadPrices[agent_id] > self.agent_maxes[agent_id]:
+                self.agent_maxes[agent_id] = self.roadPrices[agent_id]
+                self.agent_price_range[agent_id] = self.agent_maxes[agent_id] - self.agent_mins[agent_id]
+            if self.roadPrices[agent_id] < self.agent_mins[agent_id]:
+                self.agent_mins[agent_id] = self.roadPrices[agent_id]
+                self.agent_price_range[agent_id] = self.agent_maxes[agent_id] - self.agent_mins[agent_id]
 
         # Here, we need to update the simulation and push forward with one timestep
         # Once we've updated all of that, we then update the rewards
@@ -277,7 +292,7 @@ class simulation_env(ParallelEnv):
 
 
             # Uncomment below for maximising profit
-            timestep_rewards[decision] = timestep_rewards[decision] + self.roadPrices[decision]
+            # timestep_rewards[decision] = timestep_rewards[decision] + self.roadPrices[decision]
             # Uncomment bellow for minimising total combined cost
             # timestep_rewards[decision] = timestep_rewards[decision] - ((vot*self.roadTravelTime[decision]) + self.roadPrices[decision])
 
@@ -290,7 +305,7 @@ class simulation_env(ParallelEnv):
             # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [timestep_rewards[agent]]
             # agent_reward_mean = np.mean(self.agent_reward_norms[agent])
             # agent_reward_std = np.std(self.agent_reward_norms[agent])
-            # timestep_rewards[agent] = -self.roadTravelTime[agent]
+            timestep_rewards[agent] = -self.roadTravelTime[agent]
             agent_reward_mean, agent_reward_var = self.update_rolling_norms(agent, timestep_rewards[agent])
             agent_reward_std = np.sqrt(agent_reward_var)
             norm_timestep_reward = (timestep_rewards[agent] - agent_reward_mean)/(1 if agent_reward_std == 0 else agent_reward_std)

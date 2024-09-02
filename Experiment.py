@@ -18,7 +18,7 @@ class Experiment:
         self.timesteps = 1000
         self.beta_dist_alpha = 5
         self.beta_dist_beta = 5
-        self.n_cars = 750
+        self.n_cars = 1000
 
         self.car_vot_upperbound = 1.0
         self.car_vot_lowerbound = 0.0

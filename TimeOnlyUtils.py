@@ -5,7 +5,6 @@ from numpy import mean, quantile, median, std
 from numpy import min as nmin
 from numpy import max as nmax
 import inequalipy as ineq
-from numba import jit
 
 
 

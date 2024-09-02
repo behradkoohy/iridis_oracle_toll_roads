@@ -1,6 +1,6 @@
 #!/bin/bash
 
-dbpath="big_results_750cars_1000ts.db"
+dbpath="big_results_1000cars_1000ts.db"
 
 #source venv/bin/activate
 module load conda

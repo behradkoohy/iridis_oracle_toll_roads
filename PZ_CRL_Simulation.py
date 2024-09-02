@@ -7,6 +7,9 @@ from tqdm import trange, tqdm
 from ParallelPZEnv import simulation_env
 from str2bool import str2bool as strtobool
 import numpy as np
+from numpy import min as nmin
+from numpy import max as nmax
+from numpy import mean, quantile, median, std
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.distributions.categorical import Categorical
 import os
 
-from ParallelPZEnv import n_timesteps
+from ParallelPZEnv import n_timesteps, n_cars
 
 
 def parse_args():
@@ -33,8 +36,10 @@ def parse_args():
     # Algorithm Run Settings
     parser.add_argument("--num-episodes", type=int, default=10000,
         help="total episodes of the experiments")
-    parser.add_argument("--num-steps", type=int, default=(n_timesteps+3),
-        help="the number of steps to run in each environment per policy rollout")
+    parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
+    help = "the number of steps to run in each environment per policy rollout")
+    # parser.add_argument("--num-steps", type=int, default=1,
+    #     help="the number of complete episodes to run in each environment per policy rollout")
     parser.add_argument("--num-minibatches", type=int, default=4,
         help="the number of mini-batches")
     parser.add_argument("--update-epochs", type=int, default=4,
@@ -80,6 +85,7 @@ def parse_args():
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
+    args.num_steps = ((args.num_steps + 3) * 5)
     # fmt: on
     return args
 
@@ -170,11 +176,15 @@ def unbatchify(x, env):
 
 if __name__ == "__main__":
     args = parse_args()
-    run_name = f"MMRP_Online__{args.exp_name}__{args.seed}__{int(time.time())}"
+    print("----------- RUN DETAILS -----------")
+    print("N CARS:", n_cars)
+    print("N TIMESTEPS", n_timesteps)
+    print("-----------      END     -----------")
+    run_name = f"MMRP_Online__5EpisodesPerRollOut:MinimiseTT__{n_timesteps}__{n_cars}__{int(time.time())}"
     if args.track:
         import wandb
 
-        wandb.init(
+        run = wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=True,
@@ -239,7 +249,7 @@ if __name__ == "__main__":
 
     """ TRAINING LOGIC """
     # train for n number of episodes
-    pbar = tqdm(range(args.num_episodes), desc="Total Loss = ?")
+    pbar = tqdm(range(args.num_episodes))
     global_step = 0
     for episode in pbar:
     # for episode in range(total_episodes):
@@ -370,7 +380,6 @@ if __name__ == "__main__":
                     v_loss = 0.5 * v_loss_max.mean()
                 else:
                     v_loss = 0.5 * ((value - b_returns[batch_index]) ** 2).mean()
-
                 entropy_loss = entropy.mean()
                 loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
 
@@ -391,7 +400,7 @@ if __name__ == "__main__":
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clip_fracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
-        # writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+        writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
         writer.add_scalar("eval/travel_time", np.mean(env.travel_time), global_step)
         writer.add_scalar("eval/social_welfare", np.mean(env.time_cost_burden), global_step)
         writer.add_scalar("eval/combined_cost", np.mean(env.combined_cost), global_step)
@@ -402,6 +411,11 @@ if __name__ == "__main__":
         writer.add_scalar("road/road_0_var", env.agent_reward_norms_vars[0], global_step)
         writer.add_scalar("road/road_1_mean", env.agent_reward_norms_mean[1], global_step)
         writer.add_scalar("road/road_1_var", env.agent_reward_norms_vars[1], global_step)
+        writer.add_scalar("road/road_0_price_range", env.agent_price_range[0], global_step)
+        writer.add_scalar("road/road_1_price_range", env.agent_price_range[1], global_step)
+
+        # writer.add_scalar("summary:travel_time", np.mean(env.travel_time), global_step)
+
 
     pbar.set_description("Episode:" + str(episode) + ", Combined Cost Score: " + str(np.mean(env.combined_cost)))
         # print("Episode:", episode, ", Total Episodic Return:", total_episodic_return, ", Sum reward:", np.sum(total_episodic_return))
@@ -412,10 +426,12 @@ if __name__ == "__main__":
     # # env = resize_v1(env, 64, 64)
     # # env = frame_stack_v1(env, stack_size=4)
     #
+    # wandb.log({"summary:travel_time": np.mean(env.travel_time), "travel_time": np.mean(env.travel_time)})
     agent.eval()
     trained_agent_means_tt = []
     trained_agent_means_sc = []
     trained_agent_means_cc = []
+    # wandb.run.summary["travel_time"] = np.mean(env.travel_time)
     with torch.no_grad():
         # render 5 episodes out
         for episode in range(50):
@@ -443,6 +459,7 @@ if __name__ == "__main__":
     random_agent_means_tt = []
     random_agent_means_sc = []
     random_agent_means_cc = []
+
     for episode in range(50):
 
         obs, infos = env.reset(seed=None, set_np_seed=episode)
@@ -465,5 +482,64 @@ if __name__ == "__main__":
         random_agent_means_cc.append(np.mean(env.combined_cost))
 
     print('\n\n\n')
-    print("trained agent means:", np.mean(trained_agent_means_tt), np.mean(trained_agent_means_sc) ,np.mean(trained_agent_means_cc))
-    print("random agent means:", np.mean(random_agent_means_tt), np.mean(random_agent_means_sc), np.mean(random_agent_means_cc))
+    #print("trained agent means:", np.mean(trained_agent_means_tt), np.mean(trained_agent_means_sc) ,np.mean(trained_agent_means_cc))
+    #print("random agent means:", np.mean(random_agent_means_tt), np.mean(random_agent_means_sc), np.mean(random_agent_means_cc))
+    wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
+    print('trained agents:',
+        (
+            nmin(trained_agent_means_tt),
+            quantile(trained_agent_means_tt, 0.25),
+            mean(trained_agent_means_tt),
+            median(trained_agent_means_tt),
+            quantile(trained_agent_means_tt, 0.75),
+            nmax(trained_agent_means_tt),
+            std(trained_agent_means_tt),
+        ), '\n',
+        (
+            nmin(trained_agent_means_sc),
+            quantile(trained_agent_means_sc, 0.25),
+            mean(trained_agent_means_sc),
+            median(trained_agent_means_sc),
+            quantile(trained_agent_means_sc, 0.75),
+            nmax(trained_agent_means_sc),
+            std(trained_agent_means_sc),
+        ), '\n',
+        (
+            nmin(trained_agent_means_cc),
+            quantile(trained_agent_means_cc, 0.25),
+            mean(trained_agent_means_cc),
+            median(trained_agent_means_cc),
+            quantile(trained_agent_means_cc, 0.75),
+            nmax(trained_agent_means_cc),
+            std(trained_agent_means_cc),
+        ),
+    )
+    print('random agents:',
+        (
+            nmin(random_agent_means_tt),
+            quantile(random_agent_means_tt, 0.25),
+            mean(random_agent_means_tt),
+            median(random_agent_means_tt),
+            quantile(random_agent_means_tt, 0.75),
+            nmax(random_agent_means_tt),
+            std(random_agent_means_tt),
+        ), '\n',
+        (
+            nmin(random_agent_means_sc),
+            quantile(random_agent_means_sc, 0.25),
+            mean(random_agent_means_sc),
+            median(random_agent_means_sc),
+            quantile(random_agent_means_sc, 0.75),
+            nmax(random_agent_means_sc),
+            std(random_agent_means_sc),
+        ), '\n',
+        (
+            nmin(random_agent_means_cc),
+            quantile(random_agent_means_cc, 0.25),
+            mean(random_agent_means_cc),
+            median(random_agent_means_cc),
+            quantile(random_agent_means_cc, 0.75),
+            nmax(random_agent_means_cc),
+            std(random_agent_means_cc),
+        ),
+    )
