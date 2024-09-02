@@ -15,7 +15,7 @@ import numpy.random as nprand
 from RLUtils import quick_get_new_travel_times
 from TimeOnlyUtils import QueueRanges, volume_delay_function
 
-n_cars = 850
+n_cars = 85
 n_timesteps = 1000
 # timeseed = 0
 # votseed = 0
@@ -72,13 +72,21 @@ class simulation_env(ParallelEnv):
         if self.agent_reward_norms_mean[agent] is None or self.agent_reward_norms_vars[agent] is None:
             # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
             self.agent_reward_norms_mean[agent] = new_value
-            self.agent_reward_norms_vars[agent] = 1
+            self.agent_reward_norms_vars[agent] = 0
             self.agent_reward_norms_lens[agent] = 1
             return self.agent_reward_norms_mean[agent],  self.agent_reward_norms_vars[agent]
         else:
-            new_mean = (((self.agent_reward_norms_mean[agent] * n_old) + new_value)/(n_old + 1))
-            new_var = (((n_old-1)/(n_old))*self.agent_reward_norms_vars[agent]) + ((new_value - self.agent_reward_norms_mean[agent]) ** 2)/(n_old+1)
+            mean = self.agent_reward_norms_mean[agent]
+            n = self.agent_reward_norms_lens[agent]
+            var = self.agent_reward_norms_vars[agent]
+
+            new_mean = mean + ((new_value - mean) / (n + 1))
+            new_var = ((n / (n + 1)) * var) + ((new_value - mean) * ((new_value - new_mean) / (n + 1)))
+
+            # new_mean = (((self.agent_reward_norms_mean[agent] * n_old) + new_value)/(n_old + 1))
+            # new_var = (((n_old-1)/(n_old))*self.agent_reward_norms_vars[agent]) + ((new_value - self.agent_reward_norms_mean[agent]) ** 2)/(n_old+1)
             # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
+
             self.agent_reward_norms_mean[agent] = new_mean
             self.agent_reward_norms_vars[agent] = new_var
             self.agent_reward_norms_lens[agent] += 1
@@ -182,7 +190,8 @@ class simulation_env(ParallelEnv):
         self.roadTravelTime = {r: self.roadVDFS[r](0) for r in self.roadVDFS.keys()}
         self.arrival_timestep_dict = Counter(self.car_dist_arrival)
         # self.roadPrices = {r: 20.0 for r in self.roadVDFS.keys()}
-        self.roadPrices = {0: randint(1,40), 1: randint(1,40)}
+        # self.roadPrices = {0: randint(1,40), 1: randint(1,40)}
+        self.roadPrices = {r: 1.0 for r in self.roadVDFS.keys()}
 
         self.agent_price_range = {agent: 0 for agent in range(self.num_routes)}
         self.agent_maxes = {agt: price for agt, price in self.roadPrices.items()}

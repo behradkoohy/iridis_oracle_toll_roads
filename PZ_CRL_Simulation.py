@@ -28,24 +28,22 @@ def parse_args():
         help="the name of this experiment")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="cleanRL",
-        help="the wandb's project name")
-    parser.add_argument("--wandb-entity", type=str, default=None,
-        help="the entity (team) of wandb's project")
 
     # Algorithm Run Settings
     parser.add_argument("--num-episodes", type=int, default=10000,
         help="total episodes of the experiments")
-    parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
+    # parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
+    parser.add_argument("--num-steps", type=int, default=5500,
     help = "the number of steps to run in each environment per policy rollout")
-    # parser.add_argument("--num-steps", type=int, default=1,
-    #     help="the number of complete episodes to run in each environment per policy rollout")
     parser.add_argument("--num-minibatches", type=int, default=4,
         help="the number of mini-batches")
     parser.add_argument("--update-epochs", type=int, default=4,
         help="the K epochs to update the policy")
-    parser.add_argument("--num-envs", type=int, default=2,
-        help="the number of parallel game environments")
+
+    # Args made by me
+    # TODO: fix this and make it so that it works in tandem with the reward normalisation
+    parser.add_argument("--reward-clip", type=float, default=0.1,
+        help="The value to clip the reward. If left at 0, the reward will not be clipped")
 
     # Algorithm specific arguments
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
@@ -70,22 +68,32 @@ def parse_args():
         help="the maximum norm for the gradient clipping")
 
     # Not Used
-    parser.add_argument("--target-kl", type=float, default=None,
-        help="the target KL divergence threshold")
-    parser.add_argument("--total-timesteps", type=int, default=20000000,
-        help="total timesteps of the experiments")
-    parser.add_argument("--capture_video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="whether to capture videos of the agent performances (check out `videos` folder)")
-    parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="if toggled, `torch.backends.cudnn.deterministic=False`")
-    parser.add_argument("--seed", type=int, default=1,
-        help="seed of the experiment")
-    parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="if toggled, cuda will be enabled by default")
+    # parser.add_argument("--num-steps", type=int, default=1,
+    #     help="the number of complete episodes to run in each environment per policy rollout")
+    # parser.add_argument("--num-envs", type=int, default=2,
+    #     help="the number of parallel game environments")
+    # parser.add_argument("--wandb-project-name", type=str, default="cleanRL",
+    #     help="the wandb's project name")
+    # parser.add_argument("--wandb-entity", type=str, default=None,
+    #     help="the entity (team) of wandb's project")
+    # parser.add_argument("--target-kl", type=float, default=None,
+    #     help="the target KL divergence threshold")
+    # parser.add_argument("--total-timesteps", type=int, default=20000000,
+    #     help="total timesteps of the experiments")
+    # parser.add_argument("--capture_video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    #     help="whether to capture videos of the agent performances (check out `videos` folder)")
+    # parser.add_argument("--torch-deterministic", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="if toggled, `torch.backends.cudnn.deterministic=False`")
+    # parser.add_argument("--seed", type=int, default=1,
+    #     help="seed of the experiment")
+    # parser.add_argument("--cuda", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="if toggled, cuda will be enabled by default")
     args = parser.parse_args()
+    args.num_envs = 2
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_steps = ((args.num_steps + 3) * 5)
+    args.total_timesteps = n_timesteps * args.num_episodes
     # fmt: on
     return args
 
@@ -111,6 +119,9 @@ class Agent(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(256, 3), std=0.01),
         )
+
+    def forward(self):
+        pass
 
     def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
         torch.nn.init.orthogonal_(layer.weight, std)
@@ -185,8 +196,8 @@ if __name__ == "__main__":
         import wandb
 
         run = wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
+            project="cleanRL",
+            entity=None,
             sync_tensorboard=True,
             config=vars(args),
             name=run_name,
@@ -231,7 +242,6 @@ if __name__ == "__main__":
     """ LEARNER SETUP """
     agent = Agent().to(device)
     optimizer = optim.Adam(agent.parameters(), lr=0.001, eps=1e-5)
-
     """ ALGO LOGIC: EPISODE STORAGE"""
     end_step = 0
     total_episodic_return = 0
@@ -277,6 +287,8 @@ if __name__ == "__main__":
                 next_obs, rewards, terms, truncs, infos = env.step(
                     unbatchify(actions, env)
                 )
+                if args.reward_clip != 0:
+                    rewards = {agt: min(max(r, -args.reward_clip), args.reward_clip) for agt, r in rewards.items()}
                 # if episode % 100 == 0:
                 #     print(env.time, ":: " , rewards, '\t\t\t', env.roadPrices, '\t\t\t', env.roadTravelTime)
                 # add to episode storage
