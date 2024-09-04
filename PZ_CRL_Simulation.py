@@ -16,6 +16,7 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torch.distributions.categorical import Categorical
 import os
+import scipy.stats
 
 from ParallelPZEnv import n_timesteps, n_cars
 
@@ -26,7 +27,7 @@ def parse_args():
     # Run Settings
     parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
         help="the name of this experiment")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
@@ -41,9 +42,21 @@ def parse_args():
         help="the K epochs to update the policy")
 
     # Args made by me
-    # TODO: fix this and make it so that it works in tandem with the reward normalisation
+    # Agent params
     parser.add_argument("--reward-clip", type=float, default=0.1,
         help="The value to clip the reward. If left at 0, the reward will not be clipped")
+    parser.add_argument("--gae-lambda", type=float, default=0.95,
+        help="the lambda for the general advantage estimation")
+    # Env params
+    # parser.add_argument("--fixed-road-cost", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="Sets the initial road cost to be fixed. If not set, road cost will be random at each episode.")
+    # parser.add_argument("--linear-arrival-dist", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="Sets the arrival dist to be linear. If not set, arrival dist will be beta dist.")
+    # parser.add_argument("--normalised_observations", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="Normalises the agent's observations. If not set, observations will be raw values.")
+    parser.add_argument("--rewardfn", type=str, default="MaxProfit", nargs="?", const=True,
+        help="reward function for agent to use. has to be predefined.")
+
 
     # Algorithm specific arguments
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
@@ -52,8 +65,6 @@ def parse_args():
         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
-    parser.add_argument("--gae-lambda", type=float, default=0.95,
-        help="the lambda for the general advantage estimation")
     parser.add_argument("--norm-adv", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles advantages normalization")
     parser.add_argument("--clip-coef", type=float, default=0.1,
@@ -92,7 +103,7 @@ def parse_args():
     args.num_envs = 2
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_steps = ((args.num_steps + 3) * 5)
+    args.num_steps = ((args.num_steps + 1) * 5)
     args.total_timesteps = n_timesteps * args.num_episodes
     # fmt: on
     return args
@@ -102,7 +113,7 @@ class Agent(nn.Module):
     def __init__(self):
         super().__init__()
         self.critic = nn.Sequential(
-            layer_init(nn.Linear((7), 256)),
+            layer_init(nn.Linear((12), 256)),
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
@@ -111,7 +122,7 @@ class Agent(nn.Module):
             layer_init(nn.Linear(256, 1), std=1.0),
         )
         self.actor = nn.Sequential(
-            layer_init(nn.Linear((7), 256)),
+            layer_init(nn.Linear((12), 256)),
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
@@ -152,6 +163,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
+
 
 def batchify_obs(obs, device):
     """Converts PZ style observations to batch of torch arrays."""
@@ -207,7 +219,8 @@ if __name__ == "__main__":
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+        "|param|value|\n|-|-|\n%s"
+        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
     """ALGO PARAMS"""
@@ -228,15 +241,20 @@ if __name__ == "__main__":
     # env = pistonball_v6.parallel_env(
     #     render_mode="rgb_array", continuous=False, max_cycles=max_cycles
     # )
-    env = simulation_env()
+    env = simulation_env(
+        initial_road_cost="Fixed",
+        fixed_road_cost=1.0,
+        arrival_dist="Linear",
+        normalised_obs=True,
+        road0_capacity=15,
+        road0_fftraveltime=20,
+        road1_capacity=30,
+        road1_fftraveltime=20,
+        reward_fn=args.rewardfn
+    )
     # max_cycles = env.timesteps * 10
     num_agents = 2
     num_actions = 3
-    # env = color_reduction_v0(env)
-    # env = resize_v1(env, frame_size[0], frame_size[1])
-    # env = frame_stack_v1(env, stack_size=stack_size)
-    # num_agents = len(env.possible_agents)
-    # num_actions = env.action_space(env.possible_agents[0]).n
     observation_size = env.observation_space(env.possible_agents[0]).shape
 
     """ LEARNER SETUP """
@@ -245,14 +263,23 @@ if __name__ == "__main__":
     """ ALGO LOGIC: EPISODE STORAGE"""
     end_step = 0
     total_episodic_return = 0
-    # breakpoint()
-    # rb_obs = torch.zeros((args.num_steps, num_agents, *(7,))).to(device)
-    rb_obs = torch.zeros((args.num_steps, num_agents) + (7,), dtype=torch.float32).to(device)
-    rb_actions = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(device)
-    rb_logprobs = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(device)
-    rb_rewards = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(device)
+
+    rb_obs = torch.zeros((args.num_steps, num_agents) + (12,), dtype=torch.float32).to(
+        device
+    )
+    rb_actions = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+        device
+    )
+    rb_logprobs = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+        device
+    )
+    rb_rewards = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+        device
+    )
     rb_terms = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(device)
-    rb_values = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(device)
+    rb_values = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+        device
+    )
 
     num_updates = args.total_timesteps // args.batch_size
     start_time = time.time()
@@ -262,7 +289,7 @@ if __name__ == "__main__":
     pbar = tqdm(range(args.num_episodes))
     global_step = 0
     for episode in pbar:
-    # for episode in range(total_episodes):
+        # for episode in range(total_episodes):
         if args.anneal_lr:
             frac = 1.0 - (episode - 1.0) / num_updates
             lrnow = frac * args.learning_rate
@@ -288,7 +315,10 @@ if __name__ == "__main__":
                     unbatchify(actions, env)
                 )
                 if args.reward_clip != 0:
-                    rewards = {agt: min(max(r, -args.reward_clip), args.reward_clip) for agt, r in rewards.items()}
+                    rewards = {
+                        agt: min(max(r, -args.reward_clip), args.reward_clip)
+                        for agt, r in rewards.items()
+                    }
                 # if episode % 100 == 0:
                 #     print(env.time, ":: " , rewards, '\t\t\t', env.roadPrices, '\t\t\t', env.roadTravelTime)
                 # add to episode storage
@@ -306,17 +336,24 @@ if __name__ == "__main__":
                 if any([terms[a] for a in terms]) or any([truncs[a] for a in truncs]):
                     end_step = step
                     break
+            agent_actions = rb_actions[end_step - n_timesteps : end_step]
+            agent_entropy = scipy.stats.entropy(agent_actions)
 
         # bootstrap value if not done
         with torch.no_grad():
             rb_advantages = torch.zeros_like(rb_rewards).to(device)
+            lastgaelam = 0
             for t in reversed(range(end_step)):
                 delta = (
-                        rb_rewards[t]
-                        + args.gamma * rb_values[t + 1] * rb_terms[t + 1]
-                        - rb_values[t]
+                    rb_rewards[t]
+                    + args.gamma * rb_values[t + 1] * rb_terms[t + 1]
+                    - rb_values[t]
                 )
-                rb_advantages[t] = delta + args.gamma * args.gamma * rb_advantages[t + 1]
+                # rb_advantages[t] = delta + args.gamma * args.gamma * rb_advantages[t + 1]
+                # added in Generalised Advantage Estimation. Hopefully this smooths the learning process
+                rb_advantages[t] = lastgaelam = (
+                    delta + args.gamma * args.gae_lambda * rb_terms[t + 1] * lastgaelam
+                )
             rb_returns = rb_advantages + rb_values
 
         # convert our episodes to batch of individual transitions
@@ -356,7 +393,7 @@ if __name__ == "__main__":
                 # normalize advantaegs
                 advantages = b_advantages[batch_index]
                 advantages = (advantages - advantages.mean()) / (
-                        advantages.std() + 1e-8
+                    advantages.std() + 1e-8
                 )
 
                 # Policy loss
@@ -369,8 +406,8 @@ if __name__ == "__main__":
                 # Value loss
                 value = value.flatten()
 
-                # Value loss
-                value = value.flatten()
+                # # Value loss
+                # value = value.flatten()
                 # v_loss_unclipped = (value - b_returns[batch_index]) ** 2
                 # v_clipped = b_values[batch_index] + torch.clamp(
                 #     value - b_values[batch_index],
@@ -412,25 +449,54 @@ if __name__ == "__main__":
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clip_fracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
-        writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+        writer.add_scalar(
+            "losses/sum_total_episodic_return",
+            np.sum(total_episodic_return),
+            global_step,
+        )
+        writer.add_scalar(
+            "charts/SPS", int(global_step / (time.time() - start_time)), global_step
+        )
         writer.add_scalar("eval/travel_time", np.mean(env.travel_time), global_step)
-        writer.add_scalar("eval/social_welfare", np.mean(env.time_cost_burden), global_step)
+        writer.add_scalar(
+            "eval/social_welfare", np.mean(env.time_cost_burden), global_step
+        )
         writer.add_scalar("eval/combined_cost", np.mean(env.combined_cost), global_step)
         writer.add_scalar("road/road_0_profit", env.road_profits[0], global_step)
         writer.add_scalar("road/road_1_profit", env.road_profits[1], global_step)
-        writer.add_scalar("road/profit_delta", env.road_profits[0]-env.road_profits[1], global_step)
-        writer.add_scalar("road/road_0_mean", env.agent_reward_norms_mean[0], global_step)
-        writer.add_scalar("road/road_0_var", env.agent_reward_norms_vars[0], global_step)
-        writer.add_scalar("road/road_1_mean", env.agent_reward_norms_mean[1], global_step)
-        writer.add_scalar("road/road_1_var", env.agent_reward_norms_vars[1], global_step)
-        writer.add_scalar("road/road_0_price_range", env.agent_price_range[0], global_step)
-        writer.add_scalar("road/road_1_price_range", env.agent_price_range[1], global_step)
+        writer.add_scalar(
+            "road/profit_delta", env.road_profits[0] - env.road_profits[1], global_step
+        )
+        writer.add_scalar(
+            "road/road_0_mean", env.agent_reward_norms_mean[0], global_step
+        )
+        writer.add_scalar(
+            "road/road_0_var", env.agent_reward_norms_vars[0], global_step
+        )
+        writer.add_scalar(
+            "road/road_1_mean", env.agent_reward_norms_mean[1], global_step
+        )
+        writer.add_scalar(
+            "road/road_1_var", env.agent_reward_norms_vars[1], global_step
+        )
+        writer.add_scalar(
+            "road/road_0_price_range", env.agent_price_range[0], global_step
+        )
+        writer.add_scalar(
+            "road/road_1_price_range", env.agent_price_range[1], global_step
+        )
+        writer.add_scalar("road/road_0_action_entropy", agent_entropy[0], global_step)
+        writer.add_scalar("road/road_1_action_entropy", agent_entropy[1], global_step)
 
         # writer.add_scalar("summary:travel_time", np.mean(env.travel_time), global_step)
 
-
-    pbar.set_description("Episode:" + str(episode) + ", Combined Cost Score: " + str(np.mean(env.combined_cost)))
-        # print("Episode:", episode, ", Total Episodic Return:", total_episodic_return, ", Sum reward:", np.sum(total_episodic_return))
+    pbar.set_description(
+        "Episode:"
+        + str(episode)
+        + ", Combined Cost Score: "
+        + str(np.mean(env.combined_cost))
+    )
+    # print("Episode:", episode, ", Total Episodic Return:", total_episodic_return, ", Sum reward:", np.sum(total_episodic_return))
 
     # """ RENDER THE POLICY """
     # env = simulation_env()
@@ -481,7 +547,7 @@ if __name__ == "__main__":
         while env.agents:
             # this is where you would insert your policy
             # actions = {agent: env.action_space(agent).sample() for agent in env.agents}
-            actions = {agent: randint(0,2) for agent in env.agents}
+            actions = {agent: randint(0, 2) for agent in env.agents}
             observations, rewards, terminations, truncations, infos = env.step(actions)
         print("VOT/TIMESeed:", episode)
         # print(env.car_dist_arrival)
@@ -493,11 +559,12 @@ if __name__ == "__main__":
         random_agent_means_sc.append(np.mean(env.time_cost_burden))
         random_agent_means_cc.append(np.mean(env.combined_cost))
 
-    print('\n\n\n')
-    #print("trained agent means:", np.mean(trained_agent_means_tt), np.mean(trained_agent_means_sc) ,np.mean(trained_agent_means_cc))
-    #print("random agent means:", np.mean(random_agent_means_tt), np.mean(random_agent_means_sc), np.mean(random_agent_means_cc))
+    print("\n\n\n")
+    # print("trained agent means:", np.mean(trained_agent_means_tt), np.mean(trained_agent_means_sc) ,np.mean(trained_agent_means_cc))
+    # print("random agent means:", np.mean(random_agent_means_tt), np.mean(random_agent_means_sc), np.mean(random_agent_means_cc))
     wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
-    print('trained agents:',
+    print(
+        "trained agents:",
         (
             nmin(trained_agent_means_tt),
             quantile(trained_agent_means_tt, 0.25),
@@ -506,7 +573,8 @@ if __name__ == "__main__":
             quantile(trained_agent_means_tt, 0.75),
             nmax(trained_agent_means_tt),
             std(trained_agent_means_tt),
-        ), '\n',
+        ),
+        "\n",
         (
             nmin(trained_agent_means_sc),
             quantile(trained_agent_means_sc, 0.25),
@@ -515,7 +583,8 @@ if __name__ == "__main__":
             quantile(trained_agent_means_sc, 0.75),
             nmax(trained_agent_means_sc),
             std(trained_agent_means_sc),
-        ), '\n',
+        ),
+        "\n",
         (
             nmin(trained_agent_means_cc),
             quantile(trained_agent_means_cc, 0.25),
@@ -526,7 +595,8 @@ if __name__ == "__main__":
             std(trained_agent_means_cc),
         ),
     )
-    print('random agents:',
+    print(
+        "random agents:",
         (
             nmin(random_agent_means_tt),
             quantile(random_agent_means_tt, 0.25),
@@ -535,7 +605,8 @@ if __name__ == "__main__":
             quantile(random_agent_means_tt, 0.75),
             nmax(random_agent_means_tt),
             std(random_agent_means_tt),
-        ), '\n',
+        ),
+        "\n",
         (
             nmin(random_agent_means_sc),
             quantile(random_agent_means_sc, 0.25),
@@ -544,7 +615,8 @@ if __name__ == "__main__":
             quantile(random_agent_means_sc, 0.75),
             nmax(random_agent_means_sc),
             std(random_agent_means_sc),
-        ), '\n',
+        ),
+        "\n",
         (
             nmin(random_agent_means_cc),
             quantile(random_agent_means_cc, 0.25),

@@ -15,7 +15,7 @@ import numpy.random as nprand
 from RLUtils import quick_get_new_travel_times
 from TimeOnlyUtils import QueueRanges, volume_delay_function
 
-n_cars = 85
+n_cars = 850
 n_timesteps = 1000
 # timeseed = 0
 # votseed = 0
@@ -24,21 +24,67 @@ NONE = 3
 
 class simulation_env(ParallelEnv):
     # metadata = {'is_parallelizable': True}
-    metadata = {'name': 'MMRP Simulation'}
-    def __init__(self, render_mode=None):
+    metadata = {"name": "MMRP Simulation"}
+
+    def __init__(
+        self,
+        render_mode=None,
+        initial_road_cost="Fixed",
+        fixed_road_cost=1.0,
+        arrival_dist="Linear",
+        normalised_obs=True,
+        road0_capacity=15,
+        road0_fftraveltime=20,
+        road1_capacity=30,
+        road1_fftraveltime=20,
+        reward_fn = "MinVehTravelTime"
+    ):
+        """
+        Params:
+        render_mode: Does nothing.
+
+        initial_road_cost:  Can currently be 'Fixed' or 'Random'. When random, we bound between 10 and 40. When fixed,
+                            we set the initial road price to the value of 'fixed_road_cost'.
+
+        fixed_road_cost:    Only used when initial_road_cost is set to 'Fixed'. See initial_road_cost for details.
+
+        arrival_dist:       Can be set to 'linear' or 'beta' and determines how the arrival time of users is generated.
+                            Beta will generate a peak for the arrivals whereas linear will use a uniform distribution.
+
+        normalised_obs:     Determines whether we provide the raw values from observations to the agent or if we
+                            normalise the values to be between 0-1.
+
+        roadX_capacity=15:      capacity of road X
+        roadX_fftraveltime=20:  free flow travel time for road X
+                                These options currently exist for road0 and road1
+
+        reward_fn:          reward function used to calculate agent reward.
+                            currently: [MaxProfit, MinVehTravelTime, MinCombinedCost]
+        """
         self.num_routes = 2
-        self.possible_agents = ['route_' + str(r) for r in range(self.num_routes)]
+        self.possible_agents = ["route_" + str(r) for r in range(self.num_routes)]
         self.agent_name_mapping = dict(
             zip(self.possible_agents, list(range(len(self.possible_agents))))
         )
+
         self.render_mode = None
-        # self.action_spaces = {agent: Discrete(3) for agent in self.possible_agents}
+        self.initial_road_cost = initial_road_cost
+        self.fixed_road_cost = fixed_road_cost
+        self.arrival_dist = arrival_dist
+        self.normalised_obs = normalised_obs
+        self.road0_capacity = road0_capacity
+        self.road0_fftraveltime = road0_fftraveltime
+        self.road1_capacity = road1_capacity
+        self.road1_fftraveltime = road1_fftraveltime
+        self.reward_fn = reward_fn
 
         # parameters that should mostly stay the same. if they need changing, changing in here should edit all exps
         self.timesteps = n_timesteps
         self.beta_dist_alpha = 5
         self.beta_dist_beta = 5
         self.n_cars = n_cars
+
+        self.actions = None
 
         self.car_vot_upperbound = 0.999
         self.car_vot_lowerbound = 0.001
@@ -51,9 +97,18 @@ class simulation_env(ParallelEnv):
             1: lambda x: x + self.bound,
         }
 
+        if normalised_obs:
+            self.max_road_travel_time = [
+                volume_delay_function(
+                    None, None, self.road0_capacity, self.road0_fftraveltime, n_cars
+                ),
+                volume_delay_function(
+                    None, None, self.road1_capacity, self.road1_fftraveltime, n_cars
+                ),
+            ]
+
         self.queues_manager = QueueRanges()
 
-        # self.agent_reward_norms = {agent: [] for agent in range(self.num_routes)}
         self.agent_reward_norms_lens = {agent: None for agent in range(self.num_routes)}
         self.agent_reward_norms_mean = {agent: None for agent in range(self.num_routes)}
         self.agent_reward_norms_vars = {agent: None for agent in range(self.num_routes)}
@@ -64,24 +119,35 @@ class simulation_env(ParallelEnv):
         self.agent_maxes = {agent: None for agent in range(self.num_routes)}
         self.agent_mins = {agent: None for agent in range(self.num_routes)}
 
-
     def update_rolling_norms(self, agent, new_value):
         # n_old = len(self.agent_reward_norms[agent]) # the lowest this can be is 0
         # if n_old == 0:
-        n_old = self.agent_reward_norms_lens[agent] if self.agent_reward_norms_lens[agent] is not None else 0
-        if self.agent_reward_norms_mean[agent] is None or self.agent_reward_norms_vars[agent] is None:
+        n_old = (
+            self.agent_reward_norms_lens[agent]
+            if self.agent_reward_norms_lens[agent] is not None
+            else 0
+        )
+        if (
+            self.agent_reward_norms_mean[agent] is None
+            or self.agent_reward_norms_vars[agent] is None
+        ):
             # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
             self.agent_reward_norms_mean[agent] = new_value
             self.agent_reward_norms_vars[agent] = 0
             self.agent_reward_norms_lens[agent] = 1
-            return self.agent_reward_norms_mean[agent],  self.agent_reward_norms_vars[agent]
+            return (
+                self.agent_reward_norms_mean[agent],
+                self.agent_reward_norms_vars[agent],
+            )
         else:
             mean = self.agent_reward_norms_mean[agent]
             n = self.agent_reward_norms_lens[agent]
             var = self.agent_reward_norms_vars[agent]
 
             new_mean = mean + ((new_value - mean) / (n + 1))
-            new_var = ((n / (n + 1)) * var) + ((new_value - mean) * ((new_value - new_mean) / (n + 1)))
+            new_var = ((n / (n + 1)) * var) + (
+                (new_value - mean) * ((new_value - new_mean) / (n + 1))
+            )
 
             # new_mean = (((self.agent_reward_norms_mean[agent] * n_old) + new_value)/(n_old + 1))
             # new_var = (((n_old-1)/(n_old))*self.agent_reward_norms_vars[agent]) + ((new_value - self.agent_reward_norms_mean[agent]) ** 2)/(n_old+1)
@@ -90,8 +156,10 @@ class simulation_env(ParallelEnv):
             self.agent_reward_norms_mean[agent] = new_mean
             self.agent_reward_norms_vars[agent] = new_var
             self.agent_reward_norms_lens[agent] += 1
-            return self.agent_reward_norms_mean[agent], self.agent_reward_norms_vars[agent]
-
+            return (
+                self.agent_reward_norms_mean[agent],
+                self.agent_reward_norms_vars[agent],
+            )
 
     def quantalify(self, r, rest, lambd=0.9):
         # breakpoint()
@@ -107,34 +175,32 @@ class simulation_env(ParallelEnv):
         # print("101:", [q/sum(quantal_weights) for q in quantal_weights], utility)
         return choice[0]
 
-    # def quantal_decision(self, routes):
-    #     # We pass in a list of 2-tuple - (road, utility) for each road.
-    #     utility = [u[1] for u in routes]
-    #     utility = [u - max(utility) for u in utility]
-    #     quantal_weights = shortform_quantal_function(utility)
-    #     choice = choices(routes, weights=quantal_weights)
-    #     print(self.time, "::INF:: ", [u[1] for u in routes], quantal_weights, choice[0])
-    #     # print("101:", [q/sum(quantal_weights) for q in quantal_weights], utility)
-    #     return choice[0]
-
     def generate_car_time_distribution(self, timeseed=None):
+
         if timeseed is not None:
             nprand.seed(timeseed)
-        car_dist_norm = nprand.beta(
-            self.beta_dist_alpha,
-            self.beta_dist_beta,
-            size=self.n_cars,
-        )
-        car_dist_arrival = list(
-            map(
-                lambda z: round(
-                    (z - min(car_dist_norm))
-                    / (max(car_dist_norm) - min(car_dist_norm))
-                    * self.timesteps
-                ),
-                car_dist_norm,
+        if self.arrival_dist == "Beta":
+            car_dist_norm = nprand.beta(
+                self.beta_dist_alpha,
+                self.beta_dist_beta,
+                size=self.n_cars,
             )
-        )
+            car_dist_arrival = list(
+                map(
+                    lambda z: round(
+                        (z - min(car_dist_norm))
+                        / (max(car_dist_norm) - min(car_dist_norm))
+                        * self.timesteps
+                    ),
+                    car_dist_norm,
+                )
+            )
+        elif self.arrival_dist == "Linear":
+            car_dist_arrival = [round(x) for x in nprand.uniform(
+                low=0, high=self.timesteps, size=self.n_cars
+            )]
+
+
         if timeseed is not None:
             nprand.seed(None)
         return car_dist_arrival
@@ -157,7 +223,51 @@ class simulation_env(ParallelEnv):
 
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent):
-        return Box(low=np.array([0, 0, 0, 15, 0, 0, 15]), high=np.array([self.n_cars, 200, self.n_cars, 1000000, self.n_cars, 200, 1000000]), dtype=np.float64)
+        """
+        Observations:
+        1. number of cars in this road queue
+        2. price of road
+        3. number of cars arriving at this timestep
+        4. current travel time of the road
+        5. number of cars on other road queue
+        6. price of other road
+        7. road travel time for other road
+
+        8. current timestep
+        9. this agent's previous action
+        10. other agents previous action
+
+        11. number of vehicles left to arrive
+        12. number of vehicles on road or at destination
+
+        """
+        if self.normalised_obs:
+            return Box(
+                low=np.array([0 for _ in range(12)]),
+                high=np.array([1.0 for _ in range(8)] + [2, 2] + [1.0 for _ in range(2)]),
+                dtype=np.float64,
+            )
+        else:
+            return Box(
+                low=np.array([0, 0, 0, 15, 0, 0, 15, 0, 0, 0, 0, 0]),
+                high=np.array(
+                    [
+                        self.n_cars,
+                        40 + (n_timesteps * self.bound),
+                        self.n_cars,
+                        self.max_road_travel_time[1],
+                        self.n_cars,
+                        40 + (n_timesteps * self.bound),
+                        self.max_road_travel_time[1],
+                        n_timesteps + 1,
+                        2,
+                        2,
+                        self.n_cars,
+                        self.n_cars,
+                    ]
+                ),
+                dtype=np.float64,
+            )
         # return self.observation_space_d[agent]
 
     # If your spaces change over time, remove this line (disable caching).
@@ -174,24 +284,51 @@ class simulation_env(ParallelEnv):
         # self.terminations = {agent: False for agent in self.agents}
         # self.truncations = {agent: False for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
-        observations = {agent: np.array([0, 0, 0, 15, 0, 0, 15]) for agent in self.agents}
+        if self.normalised_obs:
+            observations = {
+                agent: np.array([0 for _ in range(12)]) for agent in self.agents
+            }
+        else:
+            observations = {
+                agent: np.array([0, 0, 0, 15, 0, 0, 15, 0, 0, 0, 0, 0]) for agent in self.agents
+            }
 
         self.state = observations
         self.num_moves = 0
 
-        self.car_dist_arrival = self.generate_car_time_distribution(timeseed=np.random.randint(51))
-        self.car_vot_arrival = self.generate_car_vot_distribution(votseed=np.random.randint(51))
+        self.car_dist_arrival = self.generate_car_time_distribution(
+            timeseed=np.random.randint(51)
+        )
+        self.car_vot_arrival = self.generate_car_vot_distribution(
+            votseed=np.random.randint(51)
+        )
         self.time = 0
         self.roadQueues = {r: [] for r in range(self.num_routes)}
         self.roadVDFS = {
-            0: partial(volume_delay_function, 0.656, 4.8, 15, 20),
-            1: partial(volume_delay_function, 0.656, 4.8, 30, 20),
+            0: partial(
+                volume_delay_function,
+                0.656,
+                4.8,
+                self.road0_capacity,
+                self.road0_fftraveltime,
+            ),
+            1: partial(
+                volume_delay_function,
+                0.656,
+                4.8,
+                self.road1_capacity,
+                self.road1_fftraveltime,
+            ),
         }
         self.roadTravelTime = {r: self.roadVDFS[r](0) for r in self.roadVDFS.keys()}
         self.arrival_timestep_dict = Counter(self.car_dist_arrival)
-        # self.roadPrices = {r: 20.0 for r in self.roadVDFS.keys()}
-        # self.roadPrices = {0: randint(1,40), 1: randint(1,40)}
-        self.roadPrices = {r: 1.0 for r in self.roadVDFS.keys()}
+
+        self.max_number_arrived_cars = max(self.arrival_timestep_dict.values())
+
+        if self.initial_road_cost == "Fixed":
+            self.roadPrices = {r: self.fixed_road_cost for r in self.roadVDFS.keys()}
+        elif self.initial_road_cost == "Random":
+            self.roadPrices = {0: randint(1, 40), 1: randint(1, 40)}
 
         self.agent_price_range = {agent: 0 for agent in range(self.num_routes)}
         self.agent_maxes = {agt: price for agt, price in self.roadPrices.items()}
@@ -207,26 +344,45 @@ class simulation_env(ParallelEnv):
         return observations, infos
         # return observations
 
-
-
     def get_observe(self, agent):
         agent_id = self.agent_name_mapping[agent]
-        not_agent_id = [x for x in self.agent_name_mapping.values() if x is not agent_id]
-        observed = [
-            len(self.roadQueues[agent_id]),
-            self.roadPrices[agent_id],
-            self.arrival_timestep_dict[self.time],
-            self.roadTravelTime[agent_id]
-        ] + [
-            len(self.roadQueues[agt]) for agt in not_agent_id
-        ] + [
-            self.roadPrices[agt] for agt in not_agent_id
-        ] + [
-            self.roadTravelTime[agt] for agt in not_agent_id
+        not_agent_id = [
+            x for x in self.agent_name_mapping.values() if x is not agent_id
         ]
-        cars = self.arrived_vehicles
-
-        # TODO: FINISH THIS
+        if self.normalised_obs == False:
+            observed = (
+                [
+                    len(self.roadQueues[agent_id]),
+                    self.roadPrices[agent_id],
+                    self.arrival_timestep_dict[self.time],
+                    self.roadTravelTime[agent_id],
+                ]
+                + [len(self.roadQueues[agt]) for agt in not_agent_id]
+                + [self.roadPrices[agt] for agt in not_agent_id]
+                + [self.roadTravelTime[agt] for agt in not_agent_id]
+                + [self.time]
+                + [self.actions[agent_id] if self.actions is not None else 1]
+                + [self.actions[not_agent_id[0]] if self.actions is not None else 1]
+                + [len(self.arrived_vehicles)]
+                + [self.n_cars - len(self.arrived_vehicles)]
+            )
+        elif self.normalised_obs == True:
+            observed = (
+                    [
+                        len(self.roadQueues[agent_id]) / (n_cars/2),
+                        (self.roadPrices[agent_id] - 0.25) / ((40 + (n_timesteps * self.bound))-0.25),
+                        self.arrival_timestep_dict[self.time] / self.max_number_arrived_cars,
+                        (self.roadTravelTime[agent_id] - (self.road0_fftraveltime if agent_id == 0 else self.road1_fftraveltime)) / self.max_road_travel_time[agent_id],
+                    ]
+                    + [len(self.roadQueues[agt]) / (n_cars/2) for agt in not_agent_id]
+                    + [(self.roadPrices[agt] - 0.25) / ((40 + (n_timesteps * self.bound))-0.25) for agt in not_agent_id]
+                    + [(self.roadTravelTime[agt] - (self.road0_fftraveltime if agt == 0 else self.road1_fftraveltime)) / self.max_road_travel_time[agt] for agt in not_agent_id]
+                    + [self.time / n_timesteps]
+                    + [self.actions['route_' + str(agent_id)] if self.actions is not None else 1]
+                    + [self.actions['route_' + str(not_agent_id[0])] if self.actions is not None else 1]
+                    + [len(self.arrived_vehicles) / self.n_cars]
+                    + [(self.n_cars - len(self.arrived_vehicles)) / self.n_cars]
+            )
         return np.array(observed, dtype=np.float32)
 
     def close(self):
@@ -249,23 +405,43 @@ class simulation_env(ParallelEnv):
             action = action - 1
 
             # update the price ranges, used in the debugging/tracking
-            self.roadPrices[agent_id] = self.pricing_dict[action](self.roadPrices[agent_id])
+            self.roadPrices[agent_id] = self.pricing_dict[action](
+                self.roadPrices[agent_id]
+            )
             if self.roadPrices[agent_id] > self.agent_maxes[agent_id]:
                 self.agent_maxes[agent_id] = self.roadPrices[agent_id]
-                self.agent_price_range[agent_id] = self.agent_maxes[agent_id] - self.agent_mins[agent_id]
+                self.agent_price_range[agent_id] = (
+                    self.agent_maxes[agent_id] - self.agent_mins[agent_id]
+                )
             if self.roadPrices[agent_id] < self.agent_mins[agent_id]:
                 self.agent_mins[agent_id] = self.roadPrices[agent_id]
-                self.agent_price_range[agent_id] = self.agent_maxes[agent_id] - self.agent_mins[agent_id]
+                self.agent_price_range[agent_id] = (
+                    self.agent_maxes[agent_id] - self.agent_mins[agent_id]
+                )
 
         # Here, we need to update the simulation and push forward with one timestep
         # Once we've updated all of that, we then update the rewards
         # first, we update the travel time, the queues and the arrived vehicles
-        self.roadTravelTime, self.roadQueues, self.arrived_vehicles, self.queues_manager, self.agent_vdf_cache = quick_get_new_travel_times(
-            self.roadQueues, self.roadVDFS, self.time, self.arrived_vehicles, self.time_out_car, self.queues_manager, self.agent_vdf_cache
+        (
+            self.roadTravelTime,
+            self.roadQueues,
+            self.arrived_vehicles,
+            self.queues_manager,
+            self.agent_vdf_cache,
+        ) = quick_get_new_travel_times(
+            self.roadQueues,
+            self.roadVDFS,
+            self.time,
+            self.arrived_vehicles,
+            self.time_out_car,
+            self.queues_manager,
+            self.agent_vdf_cache,
         )
         # next, we update the car arrivals
         num_vehicles_arrived = self.arrival_timestep_dict[self.time]
-        cars_arrived_vot = [self.vot_deque.popleft() for _ in range(num_vehicles_arrived)]
+        cars_arrived_vot = [
+            self.vot_deque.popleft() for _ in range(num_vehicles_arrived)
+        ]
 
         # we generate the utility function for each road
         road_partial_funct = {
@@ -299,25 +475,38 @@ class simulation_env(ParallelEnv):
                 )
             ]
 
-
             # Uncomment below for maximising profit
-            # timestep_rewards[decision] = timestep_rewards[decision] + self.roadPrices[decision]
+            if self.reward_fn == 'MaxProfit':
+                timestep_rewards[decision] = timestep_rewards[decision] + self.roadPrices[decision]
             # Uncomment bellow for minimising total combined cost
-            # timestep_rewards[decision] = timestep_rewards[decision] - ((vot*self.roadTravelTime[decision]) + self.roadPrices[decision])
+            if self.reward_fn =='MinCombinedCost':
+                timestep_rewards[decision] = timestep_rewards[decision] - ((vot*self.roadTravelTime[decision]) + self.roadPrices[decision])
+            if self.reward_fn == 'MinVehTravelTime':
+                timestep_rewards[decision] = timestep_rewards[decision] - (self.roadTravelTime[decision])
 
-            self.time_out_car[decision][round(self.time + self.roadTravelTime[decision])] = (
-                    self.time_out_car[decision][round(self.time + self.roadTravelTime[decision])] + 1
+            self.time_out_car[decision][
+                round(self.time + self.roadTravelTime[decision])
+            ] = (
+                self.time_out_car[decision][
+                    round(self.time + self.roadTravelTime[decision])
+                ]
+                + 1
             )
         # Uncomment below for minimising travel time
         norm_rewards = {}
+        print(timestep_rewards)
         for agent in self.roadVDFS.keys():
             # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [timestep_rewards[agent]]
             # agent_reward_mean = np.mean(self.agent_reward_norms[agent])
             # agent_reward_std = np.std(self.agent_reward_norms[agent])
-            timestep_rewards[agent] = -self.roadTravelTime[agent]
-            agent_reward_mean, agent_reward_var = self.update_rolling_norms(agent, timestep_rewards[agent])
+            # timestep_rewards[agent] = -self.roadTravelTime[agent]
+            agent_reward_mean, agent_reward_var = self.update_rolling_norms(
+                agent, timestep_rewards[agent]
+            )
             agent_reward_std = np.sqrt(agent_reward_var)
-            norm_timestep_reward = (timestep_rewards[agent] - agent_reward_mean)/(1 if agent_reward_std == 0 else agent_reward_std)
+            norm_timestep_reward = (timestep_rewards[agent] - agent_reward_mean) / (
+                1 if agent_reward_std == 0 else agent_reward_std
+            )
             norm_rewards["route_" + str(agent)] = np.float32(norm_timestep_reward)
             # norm_rewards["route_" + str(agent)] = timestep_rewards[agent]
         # timestep_rewards = {"route_" + str(a): -x for a, x in self.roadTravelTime.items()}
@@ -338,6 +527,7 @@ class simulation_env(ParallelEnv):
         # timestep_rewards = {"route_" + str(a): x for a, x in zip(timestep_rewards.keys(), timestep_rewards_norm)}
         # print(self.time, "rewards:", norm_rewards, ", Travel time:", self.roadTravelTime, ", Prices:",self.roadPrices, ", N_queue:",{r: len(x) for r, x in self.roadQueues.items()}, ", N cars arrived:",num_vehicles_arrived)
         observations = {agent: self.get_observe(agent) for agent in self.agents}
+        self.actions = actions
         rewards = norm_rewards
         terminations = {"route_" + str(a): False for a in self.roadVDFS.keys()}
         truncations = {"route_" + str(a): False for a in self.roadVDFS.keys()}
@@ -347,22 +537,27 @@ class simulation_env(ParallelEnv):
             self.agents = []
             terminations = {"route_" + str(a): True for a in self.roadVDFS.keys()}
             for road, queue in self.roadQueues.items():
-                self.arrived_vehicles = self.arrived_vehicles + [car for car in self.roadQueues[road]]
+                self.arrived_vehicles = self.arrived_vehicles + [
+                    car for car in self.roadQueues[road]
+                ]
 
             self.travel_time = [(c[3] - c[1]) for c in self.arrived_vehicles]
             # print(np.mean(self.travel_time))
-            self.time_cost_burden = [((c[3] - c[1]) * c[2]) for c in self.arrived_vehicles]
-            self.combined_cost = [((c[3] - c[1]) * c[2]) + c[4] for c in self.arrived_vehicles]
-            self.road_profits = {r: sum([x[4] for x in self.arrived_vehicles if x[0] == r]) for r in self.roadQueues.keys()}
+            self.time_cost_burden = [
+                ((c[3] - c[1]) * c[2]) for c in self.arrived_vehicles
+            ]
+            self.combined_cost = [
+                ((c[3] - c[1]) * c[2]) + c[4] for c in self.arrived_vehicles
+            ]
+            self.road_profits = {
+                r: sum([x[4] for x in self.arrived_vehicles if x[0] == r])
+                for r in self.roadQueues.keys()
+            }
             # print("END OF SIM ARRIVED CARS", len(self.arrived_vehicles))
         return observations, rewards, terminations, truncations, infos
-
-
-
 
         # else:
         #     self.state[self.agents[1 - self.agent_name_mapping[agent]]] = NONE
         #     self._clear_rewards()
         # self.agent_selection = self._agent_selector.next()
         # self._accumulate_rewards()
-
