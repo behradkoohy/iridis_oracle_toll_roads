@@ -1,3 +1,5 @@
+import math
+
 from pettingzoo import ParallelEnv
 import functools
 import random
@@ -30,7 +32,7 @@ class simulation_env(ParallelEnv):
         self,
         render_mode=None,
         initial_road_cost="Fixed",
-        fixed_road_cost=1.0,
+        fixed_road_cost=20.0,
         arrival_dist="Linear",
         normalised_obs=True,
         road0_capacity=15,
@@ -97,6 +99,9 @@ class simulation_env(ParallelEnv):
             1: lambda x: x + self.bound,
         }
 
+        self.price_lower_bound = self.bound
+        self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
+
         if normalised_obs:
             self.max_road_travel_time = [
                 volume_delay_function(
@@ -108,58 +113,58 @@ class simulation_env(ParallelEnv):
             ]
 
         self.queues_manager = QueueRanges()
-
-        self.agent_reward_norms_lens = {agent: None for agent in range(self.num_routes)}
-        self.agent_reward_norms_mean = {agent: None for agent in range(self.num_routes)}
-        self.agent_reward_norms_vars = {agent: None for agent in range(self.num_routes)}
+        #
+        # self.agent_reward_norms_lens = {agent: None for agent in range(self.num_routes)}
+        # self.agent_reward_norms_mean = {agent: None for agent in range(self.num_routes)}
+        # self.agent_reward_norms_vars = {agent: None for agent in range(self.num_routes)}
 
         self.agent_vdf_cache = {agent: {} for agent in range(self.num_routes)}
 
         self.agent_price_range = {agent: None for agent in range(self.num_routes)}
         self.agent_maxes = {agent: None for agent in range(self.num_routes)}
         self.agent_mins = {agent: None for agent in range(self.num_routes)}
-
-    def update_rolling_norms(self, agent, new_value):
-        # n_old = len(self.agent_reward_norms[agent]) # the lowest this can be is 0
-        # if n_old == 0:
-        n_old = (
-            self.agent_reward_norms_lens[agent]
-            if self.agent_reward_norms_lens[agent] is not None
-            else 0
-        )
-        if (
-            self.agent_reward_norms_mean[agent] is None
-            or self.agent_reward_norms_vars[agent] is None
-        ):
-            # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
-            self.agent_reward_norms_mean[agent] = new_value
-            self.agent_reward_norms_vars[agent] = 0
-            self.agent_reward_norms_lens[agent] = 1
-            return (
-                self.agent_reward_norms_mean[agent],
-                self.agent_reward_norms_vars[agent],
-            )
-        else:
-            mean = self.agent_reward_norms_mean[agent]
-            n = self.agent_reward_norms_lens[agent]
-            var = self.agent_reward_norms_vars[agent]
-
-            new_mean = mean + ((new_value - mean) / (n + 1))
-            new_var = ((n / (n + 1)) * var) + (
-                (new_value - mean) * ((new_value - new_mean) / (n + 1))
-            )
-
-            # new_mean = (((self.agent_reward_norms_mean[agent] * n_old) + new_value)/(n_old + 1))
-            # new_var = (((n_old-1)/(n_old))*self.agent_reward_norms_vars[agent]) + ((new_value - self.agent_reward_norms_mean[agent]) ** 2)/(n_old+1)
-            # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
-
-            self.agent_reward_norms_mean[agent] = new_mean
-            self.agent_reward_norms_vars[agent] = new_var
-            self.agent_reward_norms_lens[agent] += 1
-            return (
-                self.agent_reward_norms_mean[agent],
-                self.agent_reward_norms_vars[agent],
-            )
+    #
+    # def update_rolling_norms(self, agent, new_value):
+    #     # n_old = len(self.agent_reward_norms[agent]) # the lowest this can be is 0
+    #     # if n_old == 0:
+    #     n_old = (
+    #         self.agent_reward_norms_lens[agent]
+    #         if self.agent_reward_norms_lens[agent] is not None
+    #         else 0
+    #     )
+    #     if (
+    #         self.agent_reward_norms_mean[agent] is None
+    #         or self.agent_reward_norms_vars[agent] is None
+    #     ):
+    #         # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
+    #         self.agent_reward_norms_mean[agent] = new_value
+    #         self.agent_reward_norms_vars[agent] = 0
+    #         self.agent_reward_norms_lens[agent] = 1
+    #         return (
+    #             self.agent_reward_norms_mean[agent],
+    #             self.agent_reward_norms_vars[agent],
+    #         )
+    #     else:
+    #         mean = self.agent_reward_norms_mean[agent]
+    #         n = self.agent_reward_norms_lens[agent]
+    #         var = self.agent_reward_norms_vars[agent]
+    #
+    #         new_mean = mean + ((new_value - mean) / (n + 1))
+    #         new_var = ((n / (n + 1)) * var) + (
+    #             (new_value - mean) * ((new_value - new_mean) / (n + 1))
+    #         )
+    #
+    #         # new_mean = (((self.agent_reward_norms_mean[agent] * n_old) + new_value)/(n_old + 1))
+    #         # new_var = (((n_old-1)/(n_old))*self.agent_reward_norms_vars[agent]) + ((new_value - self.agent_reward_norms_mean[agent]) ** 2)/(n_old+1)
+    #         # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
+    #
+    #         self.agent_reward_norms_mean[agent] = new_mean
+    #         self.agent_reward_norms_vars[agent] = new_var
+    #         self.agent_reward_norms_lens[agent] += 1
+    #         return (
+    #             self.agent_reward_norms_mean[agent],
+    #             self.agent_reward_norms_vars[agent],
+    #         )
 
     def quantalify(self, r, rest, lambd=0.9):
         # breakpoint()
@@ -283,7 +288,6 @@ class simulation_env(ParallelEnv):
         # self._cumulative_rewards = {agent: 0 for agent in self.agents}
         # self.terminations = {agent: False for agent in self.agents}
         # self.truncations = {agent: False for agent in self.agents}
-        infos = {agent: {} for agent in self.agents}
         if self.normalised_obs:
             observations = {
                 agent: np.array([0 for _ in range(12)]) for agent in self.agents
@@ -329,6 +333,16 @@ class simulation_env(ParallelEnv):
             self.roadPrices = {r: self.fixed_road_cost for r in self.roadVDFS.keys()}
         elif self.initial_road_cost == "Random":
             self.roadPrices = {0: randint(1, 40), 1: randint(1, 40)}
+
+        infos = {agent: {'action_mask':
+            [
+                False if self.roadPrices[self.agent_name_mapping[agent]] <= self.price_lower_bound else True,
+                True,
+                False if self.roadPrices[self.agent_name_mapping[agent]] >= self.price_upper_bound else True
+            ]
+        }
+            for agent in self.agents
+        }
 
         self.agent_price_range = {agent: 0 for agent in range(self.num_routes)}
         self.agent_maxes = {agt: price for agt, price in self.roadPrices.items()}
@@ -493,21 +507,20 @@ class simulation_env(ParallelEnv):
                 + 1
             )
         # Uncomment below for minimising travel time
-        norm_rewards = {}
-        print(timestep_rewards)
-        for agent in self.roadVDFS.keys():
+        # norm_rewards = {}
+        # for agent in self.roadVDFS.keys():
             # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [timestep_rewards[agent]]
             # agent_reward_mean = np.mean(self.agent_reward_norms[agent])
             # agent_reward_std = np.std(self.agent_reward_norms[agent])
             # timestep_rewards[agent] = -self.roadTravelTime[agent]
-            agent_reward_mean, agent_reward_var = self.update_rolling_norms(
-                agent, timestep_rewards[agent]
-            )
-            agent_reward_std = np.sqrt(agent_reward_var)
-            norm_timestep_reward = (timestep_rewards[agent] - agent_reward_mean) / (
-                1 if agent_reward_std == 0 else agent_reward_std
-            )
-            norm_rewards["route_" + str(agent)] = np.float32(norm_timestep_reward)
+            # agent_reward_mean, agent_reward_var = self.update_rolling_norms(
+            #     agent, timestep_rewards[agent]
+            # )
+            # agent_reward_std = np.sqrt(agent_reward_var)
+            # norm_timestep_reward = (timestep_rewards[agent] - agent_reward_mean) / (
+            #     1 if agent_reward_std == 0 else agent_reward_std
+            # )
+            # norm_rewards["route_" + str(agent)] = np.float32(timestep_rewards[agent])
             # norm_rewards["route_" + str(agent)] = timestep_rewards[agent]
         # timestep_rewards = {"route_" + str(a): -x for a, x in self.roadTravelTime.items()}
         # print(norm_rewards)
@@ -528,10 +541,18 @@ class simulation_env(ParallelEnv):
         # print(self.time, "rewards:", norm_rewards, ", Travel time:", self.roadTravelTime, ", Prices:",self.roadPrices, ", N_queue:",{r: len(x) for r, x in self.roadQueues.items()}, ", N cars arrived:",num_vehicles_arrived)
         observations = {agent: self.get_observe(agent) for agent in self.agents}
         self.actions = actions
-        rewards = norm_rewards
+        rewards = timestep_rewards
         terminations = {"route_" + str(a): False for a in self.roadVDFS.keys()}
         truncations = {"route_" + str(a): False for a in self.roadVDFS.keys()}
-        infos = {agent: {} for agent in self.agents}
+        infos = {agent: {'action_mask':
+                             [
+                                False if self.roadPrices[self.agent_name_mapping[agent]] <= self.price_lower_bound else True,
+                                True,
+                                False if self.roadPrices[self.agent_name_mapping[agent]] >= self.price_upper_bound else True
+                             ]
+                         }
+            for agent in self.agents
+        }
         self.time += 1
         if self.is_simulation_complete():
             self.agents = []
