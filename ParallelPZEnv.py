@@ -39,7 +39,8 @@ class simulation_env(ParallelEnv):
         road0_fftraveltime=20,
         road1_capacity=30,
         road1_fftraveltime=20,
-        reward_fn = "MinVehTravelTime"
+        reward_fn = "MinVehTravelTime",
+        n_car=n_cars,
     ):
         """
         Params:
@@ -84,7 +85,7 @@ class simulation_env(ParallelEnv):
         self.timesteps = n_timesteps
         self.beta_dist_alpha = 5
         self.beta_dist_beta = 5
-        self.n_cars = n_cars
+        self.n_cars = n_car
 
         self.actions = None
 

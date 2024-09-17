@@ -35,6 +35,8 @@ def parse_args():
     # Algorithm Run Settings
     parser.add_argument("--num-episodes", type=int, default=10000,
         help="total episodes of the experiments")
+    parser.add_argument("--num-cars", type=int, default=900, nargs="?", const=True,
+                        help="number of cars in experiment")
     # parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
     parser.add_argument("--num-steps", type=int, default=5500,
     help = "the number of steps to run in each environment per policy rollout")
@@ -52,10 +54,10 @@ def parse_args():
     # Env params
     # parser.add_argument("--fixed-road-cost", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
     #     help="Sets the initial road cost to be fixed. If not set, road cost will be random at each episode.")
-    # parser.add_argument("--linear-arrival-dist", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-    #     help="Sets the arrival dist to be linear. If not set, arrival dist will be beta dist.")
-    # parser.add_argument("--normalised_observations", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-    #     help="Normalises the agent's observations. If not set, observations will be raw values.")
+    parser.add_argument("--linear-arrival-dist", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="Sets the arrival dist to be linear. If not set, arrival dist will be beta dist.")
+    parser.add_argument("--normalised_observations", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+        help="Normalises the agent's observations. If not set, observations will be raw values.")
     parser.add_argument("--rewardfn", type=str, default="MaxProfit", nargs="?", const=True,
         help="reward function for agent to use. has to be predefined.")
     parser.add_argument("--action-masks", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
@@ -236,7 +238,7 @@ def unbatchify(x, env):
 if __name__ == "__main__":
     args = parse_args()
     print("----------- RUN DETAILS -----------")
-    print("N CARS:", n_cars)
+    print("N CARS:", args.num_cars)
     print("N TIMESTEPS", n_timesteps)
     print("-----------      END     -----------")
     run_name = f"MMRP_Online__5EpisodesPerRollOut:MinimiseTT__{n_timesteps}__{n_cars}__{int(time.time())}"
@@ -263,21 +265,18 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("mps" if torch.backends.mps else "cpu")
 
-
     """ ENV SETUP """
-    # env = pistonball_v6.parallel_env(
-    #     render_mode="rgb_array", continuous=False, max_cycles=max_cycles
-    # )
     env = simulation_env(
         initial_road_cost="Fixed",
-        fixed_road_cost=1.0,
-        arrival_dist="Linear",
-        normalised_obs=True,
+        fixed_road_cost=20.0,
+        arrival_dist="Linear" if args.linear_arrival_dist else "Beta",
+        normalised_obs=True if args.normalised_observations else False,
         road0_capacity=15,
         road0_fftraveltime=20,
         road1_capacity=30,
         road1_fftraveltime=20,
-        reward_fn=args.rewardfn
+        reward_fn=args.rewardfn,
+        n_car=args.num_cars
     )
     # max_cycles = env.timesteps * 10
     num_agents = 2
