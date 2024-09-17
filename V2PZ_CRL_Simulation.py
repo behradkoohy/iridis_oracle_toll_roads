@@ -47,7 +47,7 @@ def parse_args():
 
     # Args made by me
     # Agent params
-    parser.add_argument("--reward-clip", type=float, default=10,
+    parser.add_argument("--reward-clip", type=float, default=0,
         help="The value to clip the reward. If left at 0, the reward will not be clipped")
     parser.add_argument("--gae-lambda", type=float, default=0.9,
         help="the lambda for the general advantage estimation")
