@@ -34,7 +34,7 @@ class simulation_env(ParallelEnv):
         initial_road_cost="Fixed",
         fixed_road_cost=20.0,
         arrival_dist="Linear",
-        normalised_obs=True,
+        normalised_obs=False,
         road0_capacity=15,
         road0_fftraveltime=20,
         road1_capacity=30,
@@ -93,7 +93,7 @@ class simulation_env(ParallelEnv):
         self.car_vot_lowerbound = 0.001
         # self.car_vot_upperbound = 9.5
         # self.car_vot_lowerbound = 2.5
-        self.bound = 0.25
+        self.bound = 1
         self.pricing_dict = {
             -1: lambda x: max(x - self.bound, self.bound),
             0: lambda x: x,
@@ -101,7 +101,8 @@ class simulation_env(ParallelEnv):
         }
 
         self.price_lower_bound = self.bound
-        self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
+        # self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
+        self.price_upper_bound = 125
 
         # if normalised_obs:
         self.max_road_travel_time = [
@@ -376,8 +377,8 @@ class simulation_env(ParallelEnv):
                 + [self.roadPrices[agt] for agt in not_agent_id]
                 + [self.roadTravelTime[agt] for agt in not_agent_id]
                 + [self.time]
-                + [self.actions[agent_id] if self.actions is not None else 1]
-                + [self.actions[not_agent_id[0]] if self.actions is not None else 1]
+                + [self.actions['route_' + str(agent_id)] if self.actions is not None else 1]
+                + [self.actions['route_' + str(not_agent_id[0])]  if self.actions is not None else 1]
                 + [len(self.arrived_vehicles)]
                 + [self.n_cars - len(self.arrived_vehicles)]
             )

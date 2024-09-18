@@ -21,6 +21,7 @@ import os
 import scipy.stats
 from welford import Welford
 from ParallelPZEnv import n_timesteps, n_cars
+import inequalipy as ineq
 
 
 def parse_args():
@@ -29,47 +30,54 @@ def parse_args():
     # Run Settings
     parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
         help="the name of this experiment")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
     parser.add_argument("--num-episodes", type=int, default=10000,
         help="total episodes of the experiments")
-    parser.add_argument("--num-cars", type=int, default=900, nargs="?", const=True,
+    parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
     # parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
     parser.add_argument("--num-steps", type=int, default=5500,
     help = "the number of steps to run in each environment per policy rollout")
     parser.add_argument("--num-minibatches", type=int, default=4,
         help="the number of mini-batches")
-    parser.add_argument("--update-epochs", type=int, default=4,
+    parser.add_argument("--update-epochs", type=int, default=2,
         help="the K epochs to update the policy")
 
     # Args made by me
     # Agent params
     parser.add_argument("--reward-clip", type=float, default=0,
         help="The value to clip the reward. If left at 0, the reward will not be clipped")
-    parser.add_argument("--gae-lambda", type=float, default=0.9,
+    parser.add_argument("--gae-lambda", type=float, default=0.95,
         help="the lambda for the general advantage estimation")
     # Env params
     # parser.add_argument("--fixed-road-cost", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
     #     help="Sets the initial road cost to be fixed. If not set, road cost will be random at each episode.")
-    parser.add_argument("--linear-arrival-dist", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--linear-arrival-dist", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Sets the arrival dist to be linear. If not set, arrival dist will be beta dist.")
-    parser.add_argument("--normalised_observations", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--normalised_observations", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Normalises the agent's observations. If not set, observations will be raw values.")
     parser.add_argument("--rewardfn", type=str, default="MaxProfit", nargs="?", const=True,
         help="reward function for agent to use. has to be predefined.")
     parser.add_argument("--action-masks", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles whether invalid actions are masked or not.")
-    parser.add_argument("--reward-norm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+
+    parser.add_argument("--reward-norm", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Toggles whether raw rewards are used or rewards are normalised.")
-    parser.add_argument("--warmup-arn", type= lambda x: bool(strtobool(x)), default = True, nargs = "?", const = True,
+    parser.add_argument("--warmup-arn", type= lambda x: bool(strtobool(x)), default = False, nargs = "?", const = True,
         help = "Toggle whether we warmup the reward normalisation by playing the environment randomly before training agent.")
-    parser.add_argument("--actor-spect-norm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="Toggle whether we use spectral norm between layers in the actor.")
-    parser.add_argument("--critic-spect-norm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="Toggle whether we use spectral norm between layers in the critic.")
+
+    parser.add_argument("--batch-return-norm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+                        help="Toggles whether raw rewards are used or rewards are normalised per episode batch.")
+    parser.add_argument("--batch-obs-norm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+                        help="Toggles whether raw obs are used or obs are normalised per episode batch.")
+
+    # parser.add_argument("--actor-spect-norm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="Toggle whether we use spectral norm between layers in the actor.")
+    # parser.add_argument("--critic-spect-norm", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="Toggle whether we use spectral norm between layers in the critic.")
 
     # Algorithm specific arguments
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
@@ -78,8 +86,8 @@ def parse_args():
         help="Toggle learning rate annealing for policy and value networks")
     parser.add_argument("--gamma", type=float, default=0.99,
         help="the discount factor gamma")
-    parser.add_argument("--norm-adv", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
-        help="Toggles advantages normalization")
+    # parser.add_argument("--norm-adv", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    #     help="Toggles advantages normalization")
     parser.add_argument("--clip-coef", type=float, default=0.1,
         help="the surrogate clipping coefficient")
     parser.add_argument("--clip-vloss", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
@@ -90,6 +98,7 @@ def parse_args():
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.5,
         help="the maximum norm for the gradient clipping")
+
 
     # Not Used
     # parser.add_argument("--num-steps", type=int, default=1,
@@ -146,25 +155,27 @@ class Agent(nn.Module):
         self.critic = nn.Sequential(
             layer_init(nn.Linear((12), 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-
-            nn.Tanh(),
+            # nn.Tanhshrink(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
+            # nn.Tanhshrink(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            # nn.Tanhshrink(),
             layer_init(nn.Linear(256, 1), std=1.0),
         )
         self.actor = nn.Sequential(
             layer_init(nn.Linear((12), 256)),
             nn.Tanh(),
+            # nn.Tanhshrink(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
+            # nn.Tanhshrink(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
+            # nn.Tanhshrink(),
             layer_init(nn.Linear(256, 3), std=0.01),
         )
-
-    def forward(self):
-        pass
 
     def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
         torch.nn.init.orthogonal_(layer.weight, std)
@@ -235,6 +246,16 @@ def unbatchify(x, env):
     return x
 
 
+def get_gradient_norm(model):
+    total_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2).item()
+            total_norm += param_norm ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+
+
 if __name__ == "__main__":
     args = parse_args()
     print("----------- RUN DETAILS -----------")
@@ -268,7 +289,7 @@ if __name__ == "__main__":
     """ ENV SETUP """
     env = simulation_env(
         initial_road_cost="Fixed",
-        fixed_road_cost=20.0,
+        fixed_road_cost=50.0,
         arrival_dist="Linear" if args.linear_arrival_dist else "Beta",
         normalised_obs=True if args.normalised_observations else False,
         road0_capacity=15,
@@ -306,28 +327,35 @@ if __name__ == "__main__":
 
     """ LEARNER SETUP """
     agent = Agent().to(device)
-    optimizer = optim.Adam(agent.parameters(), lr=0.001, eps=1e-5)
+    # optimizer = optim.Adam(agent.parameters(), lr=0.001, eps=1e-5)
+    lr = args.learning_rate
+    optimizer = optim.Adam(
+        [
+            {'params': agent.actor.parameters(), 'lr': lr, 'eps': 1e-5},
+            {'params': agent.critic.parameters(), 'lr': lr, 'eps': 1e-5}
+        ]
+    )
     """ ALGO LOGIC: EPISODE STORAGE"""
     end_step = 0
     total_episodic_return = 0
 
-    rb_obs = torch.zeros((args.num_steps, num_agents) + (12,), dtype=torch.float32).to(
+    rb_obs = torch.zeros((n_timesteps+2, num_agents) + (12,), dtype=torch.float32).to(
         device
     )
-    rb_actions = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+    rb_actions = torch.zeros((n_timesteps+2, num_agents), dtype=torch.float32).to(
         device
     )
-    rb_logprobs = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+    rb_logprobs = torch.zeros((n_timesteps+2, num_agents), dtype=torch.float32).to(
         device
     )
-    rb_rewards = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+    rb_rewards = torch.zeros((n_timesteps+2, num_agents), dtype=torch.float32).to(
         device
     )
-    rb_terms = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(device)
-    rb_values = torch.zeros((args.num_steps, num_agents), dtype=torch.float32).to(
+    rb_terms = torch.zeros((n_timesteps+2, num_agents), dtype=torch.float32).to(device)
+    rb_values = torch.zeros((n_timesteps+2, num_agents), dtype=torch.float32).to(
         device
     )
-    rb_action_masks = torch.zeros((args.num_steps, num_agents, num_actions), dtype=torch.float32).to(
+    rb_action_masks = torch.zeros((n_timesteps+2, num_agents, num_actions), dtype=torch.float32).to(
         device
     )
 
@@ -344,6 +372,7 @@ if __name__ == "__main__":
             frac = 1.0 - (episode - 1.0) / num_updates
             lrnow = frac * args.learning_rate
             optimizer.param_groups[0]["lr"] = lrnow
+            optimizer.param_groups[1]["lr"] = lrnow
         # collect an episode
         with torch.no_grad():
             # collect observations and convert to batch of torch tensors
@@ -389,17 +418,20 @@ if __name__ == "__main__":
                 rb_actions[step] = actions
                 rb_logprobs[step] = logprobs
                 rb_values[step] = values.flatten()
-                rb_action_masks[step] = s_masks
+                if args.action_masks:
+                    rb_action_masks[step] = s_masks
 
                 # compute episodic return
                 total_episodic_return += rb_rewards[step].cpu().numpy()
 
                 # if we reach termination or truncation, end
                 if any([terms[a] for a in terms]) or any([truncs[a] for a in truncs]):
+                    # print("total episodic return: ", total_episodic_return, sum(total_episodic_return))
                     end_step = step
                     break
             agent_actions = rb_actions[end_step - n_timesteps : end_step]
             agent_entropy = scipy.stats.entropy(agent_actions)
+
 
         # bootstrap value if not done
         with torch.no_grad():
@@ -419,22 +451,32 @@ if __name__ == "__main__":
             rb_returns = rb_advantages + rb_values
 
         # convert our episodes to batch of individual transitions
-        b_obs = torch.flatten(rb_obs[:end_step], start_dim=0, end_dim=1)
-        b_logprobs = torch.flatten(rb_logprobs[:end_step], start_dim=0, end_dim=1)
-        b_actions = torch.flatten(rb_actions[:end_step], start_dim=0, end_dim=1)
-        b_returns = torch.flatten(rb_returns[:end_step], start_dim=0, end_dim=1)
-        b_values = torch.flatten(rb_values[:end_step], start_dim=0, end_dim=1)
-        b_advantages = torch.flatten(rb_advantages[:end_step], start_dim=0, end_dim=1)
-        b_action_masks = torch.flatten(rb_action_masks[:end_step], start_dim=0, end_dim=1)
-
+        b_obs = torch.flatten(rb_obs[:end_step+1], start_dim=0, end_dim=1)
+        b_logprobs = torch.flatten(rb_logprobs[:end_step+1], start_dim=0, end_dim=1)
+        b_actions = torch.flatten(rb_actions[:end_step+1], start_dim=0, end_dim=1)
+        b_returns = torch.flatten(rb_returns[:end_step+1], start_dim=0, end_dim=1)
+        b_values = torch.flatten(rb_values[:end_step+1], start_dim=0, end_dim=1)
+        b_advantages = torch.flatten(rb_advantages[:end_step+1], start_dim=0, end_dim=1)
+        if args.action_masks:
+            b_action_masks = torch.flatten(rb_action_masks[:end_step+1], start_dim=0, end_dim=1)
         # Optimizing the policy and value network
         b_index = np.arange(len(b_obs))
+
+        # lets see if batchwise-reward-norm will work
+        if args.batch_return_norm:
+            b_return_mean = b_returns.mean()
+            b_return_std = b_returns.std()
+            b_returns = (b_returns - b_return_mean) / b_return_std
+        if args.batch_obs_norm:
+            b_obs = (b_obs - b_obs.mean(axis=0)) / b_obs.std(axis=0)
+
         # b_inds = np.arange(args.batch_size)
         clip_fracs = []
         for repeat in range(args.update_epochs):
             # shuffle the indices we use to access the data
             np.random.shuffle(b_index)
-            for start in range(0, len(b_obs), args.batch_size):
+            # for start in range(0, len(b_obs), args.batch_size):
+            for start in range(0, len(b_obs), 512):
                 # select the indices we want to train on
                 end = start + args.batch_size
                 batch_index = b_index[start:end]
@@ -498,11 +540,16 @@ if __name__ == "__main__":
                     v_loss = 0.5 * ((value - b_returns[batch_index]) ** 2).mean()
                 entropy_loss = entropy.mean()
                 loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
-
+                # print("Value loss:", v_loss, ", Policy Loss", pg_loss)
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
+
+            # print("Value loss:", v_loss, ", Policy Loss", pg_loss)
+            # for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
+            #     grad_norm = get_gradient_norm(mdl)
+            #     print(f"{name} Gradient Norm: {grad_norm}")
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
@@ -516,6 +563,19 @@ if __name__ == "__main__":
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clip_fracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
+        writer.add_scalar("losses/agent_0_advantage", rb_advantages[:, 0].mean().item(), global_step)
+        writer.add_scalar("losses/agent_1_advantage", rb_advantages[:, 1].mean().item(), global_step)
+        writer.add_scalar("losses/agent_0_logprobs", rb_logprobs[:, 0].mean().item(), global_step)
+        writer.add_scalar("losses/agent_1_logprobs", rb_logprobs[:, 1].mean().item(), global_step)
+        writer.add_scalar("losses/agent_0_returns_means", rb_returns[:, 0].mean().item(), global_step)
+        writer.add_scalar("losses/agent_1_returns_means", rb_returns[:, 1].mean().item(), global_step)
+        writer.add_scalar("losses/agent_0_returns_vars", rb_returns[:, 0].var().item(), global_step)
+        writer.add_scalar("losses/agent_1_returns_vars", rb_returns[:, 1].var().item(), global_step)
+        for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
+            grad_norm = get_gradient_norm(mdl)
+            # print(f"{name} Gradient Norm: {grad_norm}")
+            writer.add_scalar(f"losses/{name}_grad_norm", grad_norm, global_step)
+
         writer.add_scalar(
             "losses/sum_total_episodic_return",
             np.sum(total_episodic_return),
@@ -534,27 +594,14 @@ if __name__ == "__main__":
         writer.add_scalar(
             "road/profit_delta", env.road_profits[0] - env.road_profits[1], global_step
         )
-        if args.reward_norm:
-            writer.add_scalar(
-                "road/road_0_mean", agent_welford['route_0'].mean[0], global_step
-            )
-            writer.add_scalar(
-                "road/road_0_var", agent_welford['route_0'].var_s[0], global_step
-            )
-            writer.add_scalar(
-                "road/road_1_mean", agent_welford['route_1'].mean[0], global_step
-            )
-            writer.add_scalar(
-                "road/road_1_var", agent_welford['route_1'].var_s[0], global_step
-            )
         writer.add_scalar(
             "road/road_0_price_range", env.agent_price_range[0], global_step
         )
         writer.add_scalar(
             "road/road_1_price_range", env.agent_price_range[1], global_step
         )
-        writer.add_scalar("road/road_0_action_entropy", agent_entropy[0], global_step)
-        writer.add_scalar("road/road_1_action_entropy", agent_entropy[1], global_step)
+        # writer.add_scalar("road/road_0_action_entropy", agent_entropy[0], global_step)
+        # writer.add_scalar("road/road_1_action_entropy", agent_entropy[1], global_step)
 
         # writer.add_scalar("summary:travel_time", np.mean(env.travel_time), global_step)
 
@@ -564,15 +611,7 @@ if __name__ == "__main__":
         + ", Combined Cost Score: "
         + str(np.mean(env.combined_cost))
     )
-    # print("Episode:", episode, ", Total Episodic Return:", total_episodic_return, ", Sum reward:", np.sum(total_episodic_return))
 
-    # """ RENDER THE POLICY """
-    # env = simulation_env()
-    # # env = color_reduction_v0(env)
-    # # env = resize_v1(env, 64, 64)
-    # # env = frame_stack_v1(env, stack_size=4)
-    #
-    # wandb.log({"summary:travel_time": np.mean(env.travel_time), "travel_time": np.mean(env.travel_time)})
     agent.eval()
     trained_agent_means_tt = []
     trained_agent_means_sc = []
@@ -587,7 +626,11 @@ if __name__ == "__main__":
             terms = [False]
             truncs = [False]
             while not any(terms) and not any(truncs):
-                actions, logprobs, _, values = agent.get_action_and_value(obs)
+                if args.action_masks:
+                    s_masks = torch.tensor([info[agt]['action_mask'] for agt in env.agents])
+                    actions, logprobs, _, values = agent.get_action_and_value(obs, action_masks=s_masks)
+                else:
+                    actions, logprobs, _, values = agent.get_action_and_value(obs)
                 obs, rewards, terms, truncs, infos = env.step(unbatchify(actions, env))
                 obs = batchify_obs(obs, device)
                 terms = [terms[a] for a in terms]
@@ -630,7 +673,21 @@ if __name__ == "__main__":
     print("\n\n\n")
     # print("trained agent means:", np.mean(trained_agent_means_tt), np.mean(trained_agent_means_sc) ,np.mean(trained_agent_means_cc))
     # print("random agent means:", np.mean(random_agent_means_tt), np.mean(random_agent_means_sc), np.mean(random_agent_means_cc))
-    wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
+    if args.track:
+        # Pure values
+        wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
+        wandb.run.summary["social_cost"] = np.mean(trained_agent_means_sc)
+        wandb.run.summary["combined_cost"] = np.mean(trained_agent_means_cc)
+        wandb.run.summary['gini_coef_tt'] = ineq.gini(trained_agent_means_tt)
+        wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)
+
+        # Gap to Random Agent
+        wandb.run.summary["tt_performance_gap"] = np.mean(trained_agent_means_tt) - np.mean(random_agent_means_tt)
+        wandb.run.summary["sc_performance_gap"] = np.mean(trained_agent_means_sc) - np.mean(random_agent_means_sc)
+        wandb.run.summary["cc_performance_gap"] = np.mean(trained_agent_means_cc) - np.mean(random_agent_means_cc)
+        wandb.run.summary['gini_perf_gap'] = ineq.gini(trained_agent_means_tt) - ineq.gini(random_agent_means_tt)
+        wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5) - ineq.atkinson.index(random_agent_means_tt, epsilon=0.5)
+
     print(
         "trained agents:",
         (
@@ -641,6 +698,8 @@ if __name__ == "__main__":
             quantile(trained_agent_means_tt, 0.75),
             nmax(trained_agent_means_tt),
             std(trained_agent_means_tt),
+            ineq.gini(trained_agent_means_tt),
+            ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5),
         ),
         "\n",
         (
@@ -651,6 +710,8 @@ if __name__ == "__main__":
             quantile(trained_agent_means_sc, 0.75),
             nmax(trained_agent_means_sc),
             std(trained_agent_means_sc),
+            ineq.gini(trained_agent_means_sc),
+            ineq.atkinson.index(trained_agent_means_sc, epsilon=0.5),
         ),
         "\n",
         (
@@ -661,6 +722,8 @@ if __name__ == "__main__":
             quantile(trained_agent_means_cc, 0.75),
             nmax(trained_agent_means_cc),
             std(trained_agent_means_cc),
+            ineq.gini(trained_agent_means_cc),
+            ineq.atkinson.index(trained_agent_means_cc, epsilon=0.5),
         ),
     )
     print(
@@ -673,6 +736,8 @@ if __name__ == "__main__":
             quantile(random_agent_means_tt, 0.75),
             nmax(random_agent_means_tt),
             std(random_agent_means_tt),
+            ineq.gini(random_agent_means_tt),
+            ineq.atkinson.index(random_agent_means_tt, epsilon=0.5),
         ),
         "\n",
         (
@@ -683,6 +748,8 @@ if __name__ == "__main__":
             quantile(random_agent_means_sc, 0.75),
             nmax(random_agent_means_sc),
             std(random_agent_means_sc),
+            ineq.gini(random_agent_means_sc),
+            ineq.atkinson.index(random_agent_means_sc, epsilon=0.5),
         ),
         "\n",
         (
@@ -693,5 +760,7 @@ if __name__ == "__main__":
             quantile(random_agent_means_cc, 0.75),
             nmax(random_agent_means_cc),
             std(random_agent_means_cc),
+            ineq.gini(random_agent_means_cc),
+            ineq.atkinson.index(random_agent_means_cc, epsilon=0.5),
         ),
     )
