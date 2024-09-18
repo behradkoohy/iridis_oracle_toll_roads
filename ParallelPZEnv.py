@@ -103,15 +103,15 @@ class simulation_env(ParallelEnv):
         self.price_lower_bound = self.bound
         self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
 
-        if normalised_obs:
-            self.max_road_travel_time = [
-                volume_delay_function(
-                    None, None, self.road0_capacity, self.road0_fftraveltime, n_cars
-                ),
-                volume_delay_function(
-                    None, None, self.road1_capacity, self.road1_fftraveltime, n_cars
-                ),
-            ]
+        # if normalised_obs:
+        self.max_road_travel_time = [
+            volume_delay_function(
+                None, None, self.road0_capacity, self.road0_fftraveltime, n_cars
+            ),
+            volume_delay_function(
+                None, None, self.road1_capacity, self.road1_fftraveltime, n_cars
+            ),
+        ]
 
         self.queues_manager = QueueRanges()
         #
