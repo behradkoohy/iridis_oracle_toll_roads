@@ -57,7 +57,7 @@ def parse_args():
     #     help="Sets the initial road cost to be fixed. If not set, road cost will be random at each episode.")
     parser.add_argument("--linear-arrival-dist", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Sets the arrival dist to be linear. If not set, arrival dist will be beta dist.")
-    parser.add_argument("--normalised_observations", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--normalised-observations", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Normalises the agent's observations. If not set, observations will be raw values.")
     parser.add_argument("--rewardfn", type=str, default="MaxProfit", nargs="?", const=True,
         help="reward function for agent to use. has to be predefined.")
