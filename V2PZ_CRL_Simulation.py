@@ -446,7 +446,7 @@ if __name__ == "__main__":
                 # rb_advantages[t] = delta + args.gamma * args.gamma * rb_advantages[t + 1]
                 # added in Generalised Advantage Estimation. Hopefully this smooths the learning process
                 rb_advantages[t] = lastgaelam = (
-                    delta + args.gamma * args.gae_lambda * rb_terms[t + 1] * lastgaelam
+                    delta + args.gamma * args.gae_lambda * (1 - rb_terms[t + 1]) * lastgaelam
                 )
             rb_returns = rb_advantages + rb_values
 
