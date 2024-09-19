@@ -426,7 +426,7 @@ if __name__ == "__main__":
 
                 # if we reach termination or truncation, end
                 if any([terms[a] for a in terms]) or any([truncs[a] for a in truncs]):
-                    # print("total episodic return: ", total_episodic_return, sum(total_episodic_return))
+                    print("total episodic return: ", total_episodic_return, sum(total_episodic_return))
                     end_step = step
                     break
             agent_actions = rb_actions[end_step - n_timesteps : end_step]
@@ -440,7 +440,7 @@ if __name__ == "__main__":
             for t in reversed(range(end_step)):
                 delta = (
                     rb_rewards[t]
-                    + args.gamma * rb_values[t + 1] * rb_terms[t + 1]
+                    + args.gamma * rb_values[t + 1] * (1 - rb_terms[t + 1])
                     - rb_values[t]
                 )
                 # rb_advantages[t] = delta + args.gamma * args.gamma * rb_advantages[t + 1]
@@ -546,10 +546,10 @@ if __name__ == "__main__":
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
 
-            # print("Value loss:", v_loss, ", Policy Loss", pg_loss)
-            # for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
-            #     grad_norm = get_gradient_norm(mdl)
-            #     print(f"{name} Gradient Norm: {grad_norm}")
+            print("Value loss:", v_loss, ", Policy Loss", pg_loss)
+            for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
+                grad_norm = get_gradient_norm(mdl)
+                print(f"{name} Gradient Norm: {grad_norm}")
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
