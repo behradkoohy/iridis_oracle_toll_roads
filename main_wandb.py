@@ -239,7 +239,7 @@ def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
     parser.add_argument("--timesteps", type=int, help="The number of timesteps for the simulation", default=1000)
-    parser.add_argument("--n_cars", type=int, help="The number of cars in the simulation", default=750)
+    parser.add_argument("--n_cars", type=int, help="The number of cars in the simulation", default=200)
     parser.add_argument("--optimise", type=str, help="Select the evaluation function for the model", choices=['TravelTime', 'SocialCost', 'CombinedCost'], default='TravelTime')
     parser.add_argument("--actions", type=str, help="Select the action space of the agent", choices=['Timestep', 'Fixed', 'Unbound', 'Linear'], default='Fixed')
     parser.add_argument("--VOTSeed", type=int, help="The VOT seed value", default=1)
@@ -358,6 +358,29 @@ def run_exp(args):
         )
     cost, pos = optimizer.optimize(objective_function, iters=args.n_iterations)
     print(cost)
+    tt_eval, sc_eval, cc_eval = evaluate_solution(
+        pos,
+        car_dist_arrival,
+        car_vot_arrival,
+        road_price_upt,
+        args.timesteps,
+        args,
+        seq_decisions=False,
+        post_eval=True,
+        optimise_for=args.optimise,
+    )
+    if args.track:
+        for name, mode in zip(['travel_time', 'social_cost', 'combined_cost'], [tt_eval, sc_eval, cc_eval]):
+            writer.add_scalar(f"{name}/{name}_min", mode[0])
+            writer.add_scalar(f"{name}/{name}_q1", mode[1])
+            writer.add_scalar(f"{name}/{name}_mean", mode[2])
+            writer.add_scalar(f"{name}/{name}_median", mode[3])
+            writer.add_scalar(f"{name}/{name}_q3", mode[4])
+            writer.add_scalar(f"{name}/{name}_max", mode[5])
+            writer.add_scalar(f"{name}/{name}_std", mode[6])
+            writer.add_scalar(f"{name}/{name}_gini", mode[7])
+            writer.add_scalar(f"{name}/{name}_atkinson", mode[8])
+
 
 
 if __name__ == "__main__":
