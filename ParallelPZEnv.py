@@ -91,18 +91,20 @@ class simulation_env(ParallelEnv):
 
         self.car_vot_upperbound = 0.999
         self.car_vot_lowerbound = 0.001
+
+        self.price_lower_bound = self.bound
+        # self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
+        self.price_upper_bound = 125
+
         # self.car_vot_upperbound = 9.5
         # self.car_vot_lowerbound = 2.5
         self.bound = 1
         self.pricing_dict = {
             -1: lambda x: max(x - self.bound, self.bound),
             0: lambda x: x,
-            1: lambda x: x + self.bound,
+            1: lambda x: min(x + self.bound, self.price_upper_bound),
         }
 
-        self.price_lower_bound = self.bound
-        # self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
-        self.price_upper_bound = 125
 
         # if normalised_obs:
         self.max_road_travel_time = [

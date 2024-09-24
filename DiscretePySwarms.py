@@ -4,6 +4,8 @@ import pyswarms as ps
 import numpy as np
 import logging
 
+from torch.fx.experimental.proxy_tensor import track_tensor
+
 
 # Define custom operators
 def compute_int_position(swarm, bounds, bh):
@@ -88,7 +90,7 @@ class IntStar(ps.backend.topology.Topology):
 
 # Define custom Optimizer class
 class IntOptimizerPSO(ps.base.SwarmOptimizer):
-    def __init__(self, n_particles, dimensions, options, bounds=None, initpos=None):
+    def __init__(self, n_particles, dimensions, options, bounds=None, initpos=None, track=None, wandb=None):
         super(IntOptimizerPSO, self).__init__(
             n_particles=n_particles,
             dimensions=dimensions,
@@ -99,12 +101,15 @@ class IntOptimizerPSO(ps.base.SwarmOptimizer):
             ftol=-np.inf,
             init_pos=initpos,
         )
+
         self.reset()
         # The periodic strategy will leave the velocities on integer values
         self.bh = ps.backend.handlers.BoundaryHandler(strategy="periodic")
         self.top = IntStar()
         self.rep = ps.utils.Reporter(logger=logging.getLogger(__name__))
         self.name = __name__
+        self.writer = track
+        self.wandb = wandb
 
     # More or less copy-paste of the optimize method of the GeneralOptimizerPSO
     def optimize(self, func, iters, n_processes=None):
@@ -123,6 +128,17 @@ class IntOptimizerPSO(ps.base.SwarmOptimizer):
             self.swarm.best_pos, self.swarm.best_cost = self.top.compute_gbest(
                 self.swarm, **self.options
             )
+
+            if self.writer is not None:
+                self.writer.add_scalar("cost/best_cost", self.swarm.best_cost, i)
+                self.writer.add_scalar("cost/mean_pbest_cost", np.mean(self.swarm.pbest_cost), i)
+                # self.writer.add_scalar("cost/mean_neighbor_cost", self.swarm.best_cost, i)
+
+            if self.wandb is not None:
+                self.wandb.run.summary['cost'] = self.swarm.best_cost
+                self.wandb.run.summary['mean_pbest_cost'] = np.mean(self.swarm.pbest_cost)
+                # self.wandb.run.summary['mean_neighbor_cost'] = self.swarm.best_cost
+
             self.rep.hook(best_cost=self.swarm.best_cost)
             # Cou could also just use the custom operators on the next two lines
             self.swarm.velocity = self.top.compute_velocity(
