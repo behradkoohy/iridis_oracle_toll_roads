@@ -239,9 +239,9 @@ def parse_args():
     # fmt: off
     parser = argparse.ArgumentParser()
     parser.add_argument("--timesteps", type=int, help="The number of timesteps for the simulation", default=1000)
-    parser.add_argument("--n_cars", type=int, help="The number of cars in the simulation", default=200)
+    parser.add_argument("--n_cars", type=int, help="The number of cars in the simulation", default=750)
     parser.add_argument("--optimise", type=str, help="Select the evaluation function for the model", choices=['TravelTime', 'SocialCost', 'CombinedCost'], default='TravelTime')
-    parser.add_argument("--actions", type=str, help="Select the action space of the agent", choices=['Timestep', 'Fixed', 'Unbound', 'Linear'], default='Fixed')
+    parser.add_argument("--actions", type=str, help="Select the action space of the agent", choices=['Timestep', 'Fixed', 'Unbound', 'Linear'], default='Timestep')
     parser.add_argument("--VOTSeed", type=int, help="The VOT seed value", default=1)
     parser.add_argument("--TIMESeed", type=int, help="The TIME seed value", default=1)
     parser.add_argument("--beta_alpha", type=int, help="The alpha value for the beta distribution", default=5)
@@ -250,7 +250,7 @@ def parse_args():
     parser.add_argument("--car_vot_upperbound", type=float, help="The upper bound for the car VOT distribution", default=1.0)
     parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=100)
     parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=10)
-    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=True)
+    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=False)
     return parser.parse_args()
     # fmt: on
 
@@ -301,8 +301,8 @@ def run_exp(args):
             return 0
     def objective_function(solution):
         # solution = [list(map(discrete_activate_funct, sol)) for sol in solution]
-        if args.actions == "Timestep":
-            solution = [list(map(discrete_activate_funct, sol)) for sol in solution]
+        # if args.actions == "Timestep":
+        #     solution = [list(map(discrete_activate_funct, sol)) for sol in solution]
         score = [
             -evaluate_solution(
                 sol,
@@ -359,7 +359,7 @@ def run_exp(args):
     cost, pos = optimizer.optimize(objective_function, iters=args.n_iterations)
     print(cost)
     tt_eval, sc_eval, cc_eval = evaluate_solution(
-        pos,
+        pos if args.actions != 'Timestep' else [discrete_activate_funct(x) for x in pos],
         car_dist_arrival,
         car_vot_arrival,
         road_price_upt,

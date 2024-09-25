@@ -1,3 +1,4 @@
+from pyswarms.backend import generate_velocity
 from pyswarms.base.base_discrete import DiscreteSwarmOptimizer
 from pyswarms.backend.generators import create_swarm, generate_discrete_swarm
 import pyswarms as ps
@@ -108,8 +109,29 @@ class IntOptimizerPSO(ps.base.SwarmOptimizer):
         self.top = IntStar()
         self.rep = ps.utils.Reporter(logger=logging.getLogger(__name__))
         self.name = __name__
+
         self.writer = track
         self.wandb = wandb
+        self.bounds = bounds
+
+    def reset(self):
+        """Reset the attributes of the optimizer
+
+        Except, do it properly so that our initial swarm is discrete as well.
+
+        Seeing as 'create_swarm' is a method in the library that I don't want to edit on iridis,
+        I have to do it in here.
+        """
+        self.cost_history = []
+        self.mean_pbest_history = []
+        self.mean_neighbor_history = []
+        self.pos_history = []
+        self.velocity_history = []
+
+        # This is the only change to the reset method
+        position = np.random.randint(2 if not self.bounds else self.bounds[0], 10 if not self.bounds else self.bounds[1], size=(self.n_particles, self.dimensions))
+        velocity = generate_velocity(self.n_particles, self.dimensions)
+        self.swarm = ps.backend.Swarm(position, velocity, options=self.options)
 
     # More or less copy-paste of the optimize method of the GeneralOptimizerPSO
     def optimize(self, func, iters, n_processes=None):
