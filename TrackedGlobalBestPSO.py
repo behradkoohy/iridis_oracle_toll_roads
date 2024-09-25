@@ -227,16 +227,10 @@ class GlobalBestPSO(SwarmOptimizer):
                 position=self.swarm.position,
                 velocity=self.swarm.velocity,
             )
-            if self.writer is not None:
-                self.writer.add_scalar("cost/best_cost", self.swarm.best_cost, i)
-                self.writer.add_scalar("cost/mean_pbest_cost", np.mean(self.swarm.pbest_cost), i)
+            # if self.writer is not None and i % 10 == 0:
+            #     self.writer.add_scalar("cost/best_cost", self.swarm.best_cost, i)
+            #     self.writer.add_scalar("cost/mean_pbest_cost", np.mean(self.swarm.pbest_cost), i)
                 # self.writer.add_scalar("cost/mean_neighbor_cost", self.swarm.best_cost, i)
-
-            if self.wandb is not None:
-                self.wandb.run.summary['cost'] = self.swarm.best_cost
-                self.wandb.run.summary['mean_pbest_cost'] = np.mean(self.swarm.pbest_cost)
-                # self.wandb.run.summary['mean_neighbor_cost'] = self.swarm.best_cost
-
 
             self._populate_history(hist)
             # Verify stop criteria based on the relative acceptable cost ftol
@@ -262,6 +256,9 @@ class GlobalBestPSO(SwarmOptimizer):
             self.swarm.position = self.top.compute_position(
                 self.swarm, self.bounds, self.bh
             )
+        if self.wandb is not None:
+            self.wandb.run.summary['cost'] = self.swarm.best_cost
+            self.wandb.run.summary['mean_pbest_cost'] = np.mean(self.swarm.pbest_cost)
 
 
         # Obtain the final best_cost and the final best_position

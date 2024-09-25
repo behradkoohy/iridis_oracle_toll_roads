@@ -129,15 +129,8 @@ class IntOptimizerPSO(ps.base.SwarmOptimizer):
                 self.swarm, **self.options
             )
 
-            if self.writer is not None:
-                self.writer.add_scalar("cost/best_cost", self.swarm.best_cost, i)
-                self.writer.add_scalar("cost/mean_pbest_cost", np.mean(self.swarm.pbest_cost), i)
-                # self.writer.add_scalar("cost/mean_neighbor_cost", self.swarm.best_cost, i)
-
-            if self.wandb is not None:
-                self.wandb.run.summary['cost'] = self.swarm.best_cost
-                self.wandb.run.summary['mean_pbest_cost'] = np.mean(self.swarm.pbest_cost)
-                # self.wandb.run.summary['mean_neighbor_cost'] = self.swarm.best_cost
+            # if self.writer is not None and i % 10 == 0:
+            #     self.writer.add_scalar("cost/best_cost", self.swarm.best_cost, i)
 
             self.rep.hook(best_cost=self.swarm.best_cost)
             # Cou could also just use the custom operators on the next two lines
@@ -149,6 +142,8 @@ class IntOptimizerPSO(ps.base.SwarmOptimizer):
             )  # compute_int_position(self.swarm, self.bounds, self.bh)
         final_best_cost = self.swarm.best_cost.copy()
         final_best_pos = self.swarm.pbest_pos[self.swarm.pbest_cost.argmin()].copy()
+        if self.wandb is not None:
+            self.wandb.run.summary['cost'] = final_best_cost
         self.rep.log(
             "Optimization finished | best cost: {}, best pos: {}".format(
                 final_best_cost, final_best_pos

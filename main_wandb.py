@@ -385,4 +385,5 @@ def run_exp(args):
 
 if __name__ == "__main__":
     args = parse_args()
+    args.VOTSeed = args.TIMESeed
     run_exp(args)
