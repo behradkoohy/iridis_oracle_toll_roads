@@ -64,11 +64,15 @@ def fixed_price_update(road_prices, timestep_action):
 def linear_price_update(road_prices, timestep_action):
     return road_prices
 
+def free_price_update(road_prices, timestep_action):
+    return {r: 0 for r in road_prices.keys()}
+
 update_price_funct = {
     "Timestep": timestep_price_update,
     "Fixed": fixed_price_update,
     "Unbound": unbound_price_update,
-    "Linear": linear_price_update
+    "Linear": linear_price_update,
+    "Free": free_price_update,
 }
 
 def create_lin_funct(m,c):
@@ -103,8 +107,6 @@ def evaluate_solution(
     car_vot_deque = deque(car_vot_dist)
 
     if args.actions == "Linear":
-        # FIXME: this line should not be called sol_deque every time because it doesnt store the value and will continue to call it
-        # FIXME: there's an easier way to access the first two and second two values in the list, im just not able to think of it rn
         # roadPrices_funct = {r: lambda x: ((solution[(2*n)] * x) + solution[(2*n)+1]) for n, r in enumerate(roadVDFS.keys())}
         roadPrices_funct = {r: create_lin_funct(solution[(2*n)], solution[(2*n)+1]) for n, r in enumerate(roadVDFS.keys())}
         roadPrices = {r: roadPrices_funct[r](0) for r in roadVDFS.keys()}
@@ -118,14 +120,16 @@ def evaluate_solution(
         roadPrices = {r: 50 for r in roadVDFS.keys()}
     elif args.actions == "Timestep":
         roadPrices = {r: 50 for r in roadVDFS.keys()}
+    elif args.actions == "Free":
+        roadPrices = {r: 0 for r in roadVDFS.keys()}
     else:
+        print('using alternative pricing')
         roadPrices = {r: 0 for r in roadVDFS.keys()}
 
     time_out_car = {r: defaultdict(int) for r in roadVDFS.keys()}
 
     arrived_vehicles = []
     time = 0
-
 
     queue_ranges = QueueRanges()
     vdf_cache = {agent: {} for agent in range(2)}
@@ -137,7 +141,9 @@ def evaluate_solution(
         )
 
         # we pass in the actions for this timestep and the road prices, and we get back the new road prices.
-        if args.actions != "Linear":
+        if args.actions == 'Free':
+            roadPrices = {r: 0 for r in roadVDFS.keys()}
+        elif args.actions != "Linear":
             roadPrices = road_price_upt(roadPrices, [sol_deque.popleft() for _ in roadVDFS.keys()] if args.actions in ["Timestep", "Unbound"] else [])
         elif args.actions == "Linear":
             roadPrices = {r: roadPrices_funct[r](len(roadQueues[r])) for r in roadPrices_funct.keys()}
@@ -193,6 +199,7 @@ def evaluate_solution(
     travel_time = [c[3] - c[1] for c in arrived_vehicles]
     time_cost_burden = [(c[3] - c[1]) * c[2] for c in arrived_vehicles]
     combined_cost = [((c[3] - c[1]) * c[2]) + c[4] for c in arrived_vehicles]
+    profit = [c[4] for c in arrived_vehicles]
     if post_eval:
         return (
             (
@@ -228,11 +235,23 @@ def evaluate_solution(
                 ineq.gini(combined_cost),
                 ineq.atkinson.index(combined_cost, epsilon=0.5),
             ),
+            (
+                nmin(profit),
+                quantile(profit, 0.25),
+                mean(profit),
+                median(profit),
+                quantile(profit, 0.75),
+                nmax(profit),
+                std(profit),
+                ineq.gini(profit),
+                ineq.atkinson.index(profit, epsilon=0.5),
+            ),
         )
     return {
-        "TravelTime": -mean(travel_time),
-        "SocialCost": -mean(time_cost_burden),
-        "CombinedCost": -mean(combined_cost),
+        "TravelTime": mean(travel_time),
+        "SocialCost": mean(time_cost_burden),
+        "CombinedCost": mean(combined_cost),
+        "Profit": -mean(combined_cost),
     }[optimise_for]
 
 def parse_args():
@@ -240,8 +259,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--timesteps", type=int, help="The number of timesteps for the simulation", default=1000)
     parser.add_argument("--n_cars", type=int, help="The number of cars in the simulation", default=750)
-    parser.add_argument("--optimise", type=str, help="Select the evaluation function for the model", choices=['TravelTime', 'SocialCost', 'CombinedCost'], default='TravelTime')
-    parser.add_argument("--actions", type=str, help="Select the action space of the agent", choices=['Timestep', 'Fixed', 'Unbound', 'Linear'], default='Timestep')
+    parser.add_argument("--optimise", type=str, help="Select the evaluation function for the model", choices=['TravelTime', 'SocialCost', 'CombinedCost', 'Profit'], default='Profit')
+    parser.add_argument("--actions", type=str, help="Select the action space of the agent", choices=['Timestep', 'Fixed', 'Unbound', 'Linear'], default='Linear')
     parser.add_argument("--VOTSeed", type=int, help="The VOT seed value", default=1)
     parser.add_argument("--TIMESeed", type=int, help="The TIME seed value", default=1)
     parser.add_argument("--beta_alpha", type=int, help="The alpha value for the beta distribution", default=5)
@@ -250,7 +269,7 @@ def parse_args():
     parser.add_argument("--car_vot_upperbound", type=float, help="The upper bound for the car VOT distribution", default=1.0)
     parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=100)
     parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=10)
-    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=False)
+    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=True)
     return parser.parse_args()
     # fmt: on
 
@@ -304,7 +323,7 @@ def run_exp(args):
         # if args.actions == "Timestep":
         #     solution = [list(map(discrete_activate_funct, sol)) for sol in solution]
         score = [
-            -evaluate_solution(
+            evaluate_solution(
                 sol,
                 car_dist_arrival,
                 car_vot_arrival,
@@ -329,6 +348,8 @@ def run_exp(args):
     elif args.actions == 'Timestep':
         max_bound = [1 for _ in range((args.timesteps + 1) * 2)]
         min_bound = [-1 for _ in range((args.timesteps + 1) * 2)]
+    # elif args.actions == 'Free':
+
     bounds = (min_bound, max_bound)
     # options = {"c1": 0.5, "c2": 0.3, "w": 0.9}
     options = {"c1": 2.05, "c2": 2.05, "w": 0.729}
@@ -357,8 +378,7 @@ def run_exp(args):
             wandb=wandb if args.track else None,
         )
     cost, pos = optimizer.optimize(objective_function, iters=args.n_iterations)
-    print(cost)
-    tt_eval, sc_eval, cc_eval = evaluate_solution(
+    tt_eval, sc_eval, cc_eval, pr_eval = evaluate_solution(
         pos if args.actions != 'Timestep' else [discrete_activate_funct(x) for x in pos],
         car_dist_arrival,
         car_vot_arrival,
@@ -370,7 +390,7 @@ def run_exp(args):
         optimise_for=args.optimise,
     )
     if args.track:
-        for name, mode in zip(['travel_time', 'social_cost', 'combined_cost'], [tt_eval, sc_eval, cc_eval]):
+        for name, mode in zip(['travel_time', 'social_cost', 'combined_cost', 'profit'], [tt_eval, sc_eval, cc_eval, pr_eval]):
             writer.add_scalar(f"{name}/{name}_min", mode[0])
             writer.add_scalar(f"{name}/{name}_q1", mode[1])
             writer.add_scalar(f"{name}/{name}_mean", mode[2])
