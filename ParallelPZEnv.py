@@ -92,13 +92,13 @@ class simulation_env(ParallelEnv):
         self.car_vot_upperbound = 0.999
         self.car_vot_lowerbound = 0.001
 
+        self.bound = 1
         self.price_lower_bound = self.bound
         # self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
         self.price_upper_bound = 125
 
         # self.car_vot_upperbound = 9.5
         # self.car_vot_lowerbound = 2.5
-        self.bound = 1
         self.pricing_dict = {
             -1: lambda x: max(x - self.bound, self.bound),
             0: lambda x: x,
@@ -185,7 +185,6 @@ class simulation_env(ParallelEnv):
         return choice[0]
 
     def generate_car_time_distribution(self, timeseed=None):
-
         if timeseed is not None:
             nprand.seed(timeseed)
         if self.arrival_dist == "Beta":
@@ -225,7 +224,7 @@ class simulation_env(ParallelEnv):
         return car_vot
 
     def is_simulation_complete(self):
-        if self.time > self.timesteps + 1:
+        if self.time > self.timesteps:
             return True
         else:
             return False
@@ -284,7 +283,7 @@ class simulation_env(ParallelEnv):
     def action_space(self, agent):
         return Discrete(3)
 
-    def reset(self, seed=None, options=None, set_np_seed=None):
+    def reset(self, seed=None, options=None, set_np_seed=None, random_cars=False):
         # This is the stuff that PettingZoo needs
         self.agents = self.possible_agents[:]
 
@@ -303,6 +302,9 @@ class simulation_env(ParallelEnv):
 
         self.state = observations
         self.num_moves = 0
+
+        if random_cars:
+            self.n_cars = randint(500, 1000)
 
         self.car_dist_arrival = self.generate_car_time_distribution(
             timeseed=np.random.randint(51)
