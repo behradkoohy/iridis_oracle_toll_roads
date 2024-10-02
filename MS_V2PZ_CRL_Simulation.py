@@ -682,7 +682,7 @@ if __name__ == "__main__":
     with torch.no_grad():
 
         for episode in range(50):
-            obs, infos = env.reset(seed=None, set_np_seed=episode)
+            obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
             obs = batchify_obs(obs, device)
             terms = [False]
             truncs = [False]
@@ -715,7 +715,7 @@ if __name__ == "__main__":
 
     for episode in range(50):
 
-        obs, infos = env.reset(seed=None, set_np_seed=episode)
+        obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
         # obs = batchify_obs(obs, device)
         terms = [False]
         truncs = [False]
