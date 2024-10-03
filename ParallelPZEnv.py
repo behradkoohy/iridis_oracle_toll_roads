@@ -307,10 +307,10 @@ class simulation_env(ParallelEnv):
             self.n_cars = randint(500, 1000)
 
         self.car_dist_arrival = self.generate_car_time_distribution(
-            timeseed=np.random.randint(51)
+            timeseed=set_np_seed
         )
         self.car_vot_arrival = self.generate_car_vot_distribution(
-            votseed=np.random.randint(51)
+            votseed=set_np_seed
         )
         self.time = 0
         self.roadQueues = {r: [] for r in range(self.num_routes)}

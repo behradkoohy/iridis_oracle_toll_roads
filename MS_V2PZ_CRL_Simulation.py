@@ -40,7 +40,7 @@ def parse_args():
                         help="number of cars in experiment")
     parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
-    parser.add_argument("--network-size", type=int, choices=[1,2,3], default=2,
+    parser.add_argument("--network-size", type=int, choices=[1,3,4,5], default=5,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large")
 
 
@@ -193,6 +193,58 @@ class Agent(nn.Module):
                 layer_init(nn.Linear(512, 512)),
                 nn.Tanh(),
                 layer_init(nn.Linear(512, 3), std=0.01),
+            )
+        elif args.network_size == 4:
+            self.critic = nn.Sequential(
+                layer_init(nn.Linear((12), 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1), std=1.0),
+            )
+            self.actor = nn.Sequential(
+                layer_init(nn.Linear((12), 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 3), std=0.01),
+            )
+        elif args.network_size == 5:
+            self.critic = nn.Sequential(
+                layer_init(nn.Linear((12), 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.BatchNorm1d(1024),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.BatchNorm1d(1024),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.BatchNorm1d(1024),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1), std=1.0),
+            )
+            self.actor = nn.Sequential(
+                layer_init(nn.Linear((12), 1024)),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.BatchNorm1d(1024),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.BatchNorm1d(1024),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 1024)),
+                nn.BatchNorm1d(1024),
+                nn.Tanh(),
+                layer_init(nn.Linear(1024, 3), std=0.01),
             )
 
     def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
@@ -673,160 +725,228 @@ if __name__ == "__main__":
     # )
 
     agent.eval()
-    trained_agent_means_tt = []
-    trained_agent_means_sc = []
-    trained_agent_means_cc = []
-    trained_agent_means_pr = []
+
     # wandb.run.summary["travel_time"] = np.mean(env.travel_time)
     # exit()
+    if not args.track:
+        exit()
+
     with torch.no_grad():
+        if args.random_cars:
+            print('evaluating')
+            # trained agent performance
+            trained_agent_means_tt = []
+            trained_agent_means_sc = []
+            trained_agent_means_cc = []
+            trained_agent_means_pr = []
+            # random agent performance
+            random_agent_means_tt = []
+            random_agent_means_sc = []
+            random_agent_means_cc = []
+            random_agent_means_pr = []
+            for eval_n_cars in [500, 600, 650, 700, 750, 800, 850, 900, 1000]:
+                print(eval_n_cars)
+                for episode in range(50):
+                    # trained agent on seed/n_cars
+                    obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
+                    obs = batchify_obs(obs, device)
+                    while not any(terms) and not any(truncs):
+                        if args.action_masks:
+                            s_masks = torch.tensor([info[agt]['action_mask'] for agt in env.agents])
+                            actions, logprobs, _, values = agent.get_action_and_value(obs, action_masks=s_masks)
+                        else:
+                            actions, logprobs, _, values = agent.get_action_and_value(obs)
+                        obs, rewards, terms, truncs, infos = env.step(unbatchify(actions, env))
+                        obs = batchify_obs(obs, device)
+                        terms = [terms[a] for a in terms]
+                        truncs = [truncs[a] for a in truncs]
+                    trained_agent_means_tt.append(np.mean(env.travel_time))
+                    trained_agent_means_sc.append(np.mean(env.time_cost_burden))
+                    trained_agent_means_cc.append(np.mean(env.combined_cost))
+                    trained_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
 
-        for episode in range(50):
-            obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
-            obs = batchify_obs(obs, device)
-            terms = [False]
-            truncs = [False]
-            while not any(terms) and not any(truncs):
-                if args.action_masks:
-                    s_masks = torch.tensor([info[agt]['action_mask'] for agt in env.agents])
-                    actions, logprobs, _, values = agent.get_action_and_value(obs, action_masks=s_masks)
-                else:
-                    actions, logprobs, _, values = agent.get_action_and_value(obs)
-                obs, rewards, terms, truncs, infos = env.step(unbatchify(actions, env))
+                    # run random agent on the env
+                    obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
+                    # obs = batchify_obs(obs, device)
+                    terms = [False]
+                    truncs = [False]
+                    while env.agents:
+                        # this is where you would insert your policy
+                        actions = {agent: randint(0, 2) for agent in env.agents}
+                        observations, rewards, terminations, truncations, infos = env.step(actions)
+                    random_agent_means_tt.append(np.mean(env.travel_time))
+                    random_agent_means_sc.append(np.mean(env.time_cost_burden))
+                    random_agent_means_cc.append(np.mean(env.combined_cost))
+                    random_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
+                if args.track:
+                    wandb.run.summary[f"{eval_n_cars}/travel_time"] = np.mean(trained_agent_means_tt)
+                    wandb.run.summary[f"{eval_n_cars}/social_cost"] = np.mean(trained_agent_means_sc)
+                    wandb.run.summary[f"{eval_n_cars}/combined_cost"] = np.mean(trained_agent_means_cc)
+                    wandb.run.summary[f"{eval_n_cars}/profit"] = np.mean(trained_agent_means_pr)
+                    wandb.run.summary[f"{eval_n_cars}/gini_coef_tt"] = ineq.gini(trained_agent_means_tt)
+                    wandb.run.summary[f"{eval_n_cars}/atki_indx_tt"] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)
+
+                    wandb.run.summary[f"{eval_n_cars}/rng_travel_time"] = np.mean(random_agent_means_tt)
+                    wandb.run.summary[f"{eval_n_cars}/rng_social_cost"] = np.mean(random_agent_means_sc)
+                    wandb.run.summary[f"{eval_n_cars}/rng_combined_cost"] = np.mean(random_agent_means_cc)
+                    wandb.run.summary[f"{eval_n_cars}/rng_profit"] = np.mean(random_agent_means_pr)
+
+                    # Gap to Random Agent
+                    wandb.run.summary[f"{eval_n_cars}/tt_performance_gap"] = np.mean(trained_agent_means_tt) - np.mean(
+                        random_agent_means_tt)
+                    wandb.run.summary[f"{eval_n_cars}/sc_performance_gap"] = np.mean(trained_agent_means_sc) - np.mean(
+                        random_agent_means_sc)
+                    wandb.run.summary[f"{eval_n_cars}/cc_performance_gap"] = np.mean(trained_agent_means_cc) - np.mean(
+                        random_agent_means_cc)
+                    wandb.run.summary[f"{eval_n_cars}/gini_perf_gap"] = ineq.gini(trained_agent_means_tt) - ineq.gini(
+                        random_agent_means_tt)
+                    wandb.run.summary[f"{eval_n_cars}/atki_indx_tt"] = ineq.atkinson.index(trained_agent_means_tt,
+                                                                            epsilon=0.5) - ineq.atkinson.index(
+                        random_agent_means_tt, epsilon=0.5)
+
+        else:
+            trained_agent_means_tt = []
+            trained_agent_means_sc = []
+            trained_agent_means_cc = []
+            trained_agent_means_pr = []
+            for episode in range(50):
+                obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
                 obs = batchify_obs(obs, device)
-                terms = [terms[a] for a in terms]
-                truncs = [truncs[a] for a in truncs]
+                terms = [False]
+                truncs = [False]
+                while not any(terms) and not any(truncs):
+                    if args.action_masks:
+                        s_masks = torch.tensor([info[agt]['action_mask'] for agt in env.agents])
+                        actions, logprobs, _, values = agent.get_action_and_value(obs, action_masks=s_masks)
+                    else:
+                        actions, logprobs, _, values = agent.get_action_and_value(obs)
+                    obs, rewards, terms, truncs, infos = env.step(unbatchify(actions, env))
+                    obs = batchify_obs(obs, device)
+                    terms = [terms[a] for a in terms]
+                    truncs = [truncs[a] for a in truncs]
 
-            print("VOT/TIMESeed:", episode)
-            # print(env.car_dist_arrival)
-            # print(env.car_vot_arrival)
-            print(f"Travel Time: {np.mean(env.travel_time)}")
-            print(f"Time-Cost Burden Score: {np.mean(env.time_cost_burden)}")
-            print(f"Combined Cost Score: {np.mean(env.combined_cost)}")
-            trained_agent_means_tt.append(np.mean(env.travel_time))
-            trained_agent_means_sc.append(np.mean(env.time_cost_burden))
-            trained_agent_means_cc.append(np.mean(env.combined_cost))
-            trained_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
+                print("VOT/TIMESeed:", episode)
+                # print(env.car_dist_arrival)
+                # print(env.car_vot_arrival)
+                print(f"Travel Time: {np.mean(env.travel_time)}")
+                print(f"Time-Cost Burden Score: {np.mean(env.time_cost_burden)}")
+                print(f"Combined Cost Score: {np.mean(env.combined_cost)}")
+                trained_agent_means_tt.append(np.mean(env.travel_time))
+                trained_agent_means_sc.append(np.mean(env.time_cost_burden))
+                trained_agent_means_cc.append(np.mean(env.combined_cost))
+                trained_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
+
+            random_agent_means_tt = []
+            random_agent_means_sc = []
+            random_agent_means_cc = []
+            for episode in range(50):
+                obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
+                # obs = batchify_obs(obs, device)
+                terms = [False]
+                truncs = [False]
+                while env.agents:
+                    # this is where you would insert your policy
+                    actions = {agent: randint(0, 2) for agent in env.agents}
+                    observations, rewards, terminations, truncations, infos = env.step(actions)
+                print("VOT/TIMESeed:", episode)
+                print(f"Travel Time: {np.mean(env.travel_time)}")
+                print(f"Time-Cost Burden Score: {np.mean(env.time_cost_burden)}")
+                print(f"Combined Cost Score: {np.mean(env.combined_cost)}")
+                random_agent_means_tt.append(np.mean(env.travel_time))
+                random_agent_means_sc.append(np.mean(env.time_cost_burden))
+                random_agent_means_cc.append(np.mean(env.combined_cost))
+                random_agent_means_cc.append(env.road_profits[0] + env.road_profits[1])
 
 
-    random_agent_means_tt = []
-    random_agent_means_sc = []
-    random_agent_means_cc = []
+        if args.track:
+            # Pure values
+            wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
+            wandb.run.summary["social_cost"] = np.mean(trained_agent_means_sc)
+            wandb.run.summary["combined_cost"] = np.mean(trained_agent_means_cc)
+            wandb.run.summary["profit"] = np.mean(trained_agent_means_pr)
+            wandb.run.summary['gini_coef_tt'] = ineq.gini(trained_agent_means_tt)
+            wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)
 
-    for episode in range(50):
+            # Gap to Random Agent
+            wandb.run.summary["tt_performance_gap"] = np.mean(trained_agent_means_tt) - np.mean(random_agent_means_tt)
+            wandb.run.summary["sc_performance_gap"] = np.mean(trained_agent_means_sc) - np.mean(random_agent_means_sc)
+            wandb.run.summary["cc_performance_gap"] = np.mean(trained_agent_means_cc) - np.mean(random_agent_means_cc)
+            wandb.run.summary['gini_perf_gap'] = ineq.gini(trained_agent_means_tt) - ineq.gini(random_agent_means_tt)
+            wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5) - ineq.atkinson.index(random_agent_means_tt, epsilon=0.5)
 
-        obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
-        # obs = batchify_obs(obs, device)
-        terms = [False]
-        truncs = [False]
-        while env.agents:
-            # this is where you would insert your policy
-            # actions = {agent: env.action_space(agent).sample() for agent in env.agents}
-            actions = {agent: randint(0, 2) for agent in env.agents}
-            observations, rewards, terminations, truncations, infos = env.step(actions)
-        print("VOT/TIMESeed:", episode)
-        # print(env.car_dist_arrival)
-        # print(env.car_vot_arrival)
-        print(f"Travel Time: {np.mean(env.travel_time)}")
-        print(f"Time-Cost Burden Score: {np.mean(env.time_cost_burden)}")
-        print(f"Combined Cost Score: {np.mean(env.combined_cost)}")
-        random_agent_means_tt.append(np.mean(env.travel_time))
-        random_agent_means_sc.append(np.mean(env.time_cost_burden))
-        random_agent_means_cc.append(np.mean(env.combined_cost))
-        random_agent_means_cc.append(env.road_profits[0] + env.road_profits[1])
-
-    print("\n\n\n")
-    # print("trained agent means:", np.mean(trained_agent_means_tt), np.mean(trained_agent_means_sc) ,np.mean(trained_agent_means_cc))
-    # print("random agent means:", np.mean(random_agent_means_tt), np.mean(random_agent_means_sc), np.mean(random_agent_means_cc))
-    if args.track:
-        # Pure values
-        wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
-        wandb.run.summary["social_cost"] = np.mean(trained_agent_means_sc)
-        wandb.run.summary["combined_cost"] = np.mean(trained_agent_means_cc)
-        wandb.run.summary["profit"] = np.mean(trained_agent_means_pr)
-        wandb.run.summary['gini_coef_tt'] = ineq.gini(trained_agent_means_tt)
-        wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)
-
-        # Gap to Random Agent
-        wandb.run.summary["tt_performance_gap"] = np.mean(trained_agent_means_tt) - np.mean(random_agent_means_tt)
-        wandb.run.summary["sc_performance_gap"] = np.mean(trained_agent_means_sc) - np.mean(random_agent_means_sc)
-        wandb.run.summary["cc_performance_gap"] = np.mean(trained_agent_means_cc) - np.mean(random_agent_means_cc)
-        wandb.run.summary['gini_perf_gap'] = ineq.gini(trained_agent_means_tt) - ineq.gini(random_agent_means_tt)
-        wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5) - ineq.atkinson.index(random_agent_means_tt, epsilon=0.5)
-
-    print(
-        "trained agents:",
-        (
-            nmin(trained_agent_means_tt),
-            quantile(trained_agent_means_tt, 0.25),
-            mean(trained_agent_means_tt),
-            median(trained_agent_means_tt),
-            quantile(trained_agent_means_tt, 0.75),
-            nmax(trained_agent_means_tt),
-            std(trained_agent_means_tt),
-            ineq.gini(trained_agent_means_tt),
-            ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5),
-        ),
-        "\n",
-        (
-            nmin(trained_agent_means_sc),
-            quantile(trained_agent_means_sc, 0.25),
-            mean(trained_agent_means_sc),
-            median(trained_agent_means_sc),
-            quantile(trained_agent_means_sc, 0.75),
-            nmax(trained_agent_means_sc),
-            std(trained_agent_means_sc),
-            ineq.gini(trained_agent_means_sc),
-            ineq.atkinson.index(trained_agent_means_sc, epsilon=0.5),
-        ),
-        "\n",
-        (
-            nmin(trained_agent_means_cc),
-            quantile(trained_agent_means_cc, 0.25),
-            mean(trained_agent_means_cc),
-            median(trained_agent_means_cc),
-            quantile(trained_agent_means_cc, 0.75),
-            nmax(trained_agent_means_cc),
-            std(trained_agent_means_cc),
-            ineq.gini(trained_agent_means_cc),
-            ineq.atkinson.index(trained_agent_means_cc, epsilon=0.5),
-        ),
-    )
-    print(
-        "random agents:",
-        (
-            nmin(random_agent_means_tt),
-            quantile(random_agent_means_tt, 0.25),
-            mean(random_agent_means_tt),
-            median(random_agent_means_tt),
-            quantile(random_agent_means_tt, 0.75),
-            nmax(random_agent_means_tt),
-            std(random_agent_means_tt),
-            ineq.gini(random_agent_means_tt),
-            ineq.atkinson.index(random_agent_means_tt, epsilon=0.5),
-        ),
-        "\n",
-        (
-            nmin(random_agent_means_sc),
-            quantile(random_agent_means_sc, 0.25),
-            mean(random_agent_means_sc),
-            median(random_agent_means_sc),
-            quantile(random_agent_means_sc, 0.75),
-            nmax(random_agent_means_sc),
-            std(random_agent_means_sc),
-            ineq.gini(random_agent_means_sc),
-            ineq.atkinson.index(random_agent_means_sc, epsilon=0.5),
-        ),
-        "\n",
-        (
-            nmin(random_agent_means_cc),
-            quantile(random_agent_means_cc, 0.25),
-            mean(random_agent_means_cc),
-            median(random_agent_means_cc),
-            quantile(random_agent_means_cc, 0.75),
-            nmax(random_agent_means_cc),
-            std(random_agent_means_cc),
-            ineq.gini(random_agent_means_cc),
-            ineq.atkinson.index(random_agent_means_cc, epsilon=0.5),
-        ),
-    )
+        print(
+            "trained agents:",
+            (
+                nmin(trained_agent_means_tt),
+                quantile(trained_agent_means_tt, 0.25),
+                mean(trained_agent_means_tt),
+                median(trained_agent_means_tt),
+                quantile(trained_agent_means_tt, 0.75),
+                nmax(trained_agent_means_tt),
+                std(trained_agent_means_tt),
+                ineq.gini(trained_agent_means_tt),
+                ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5),
+            ),
+            "\n",
+            (
+                nmin(trained_agent_means_sc),
+                quantile(trained_agent_means_sc, 0.25),
+                mean(trained_agent_means_sc),
+                median(trained_agent_means_sc),
+                quantile(trained_agent_means_sc, 0.75),
+                nmax(trained_agent_means_sc),
+                std(trained_agent_means_sc),
+                ineq.gini(trained_agent_means_sc),
+                ineq.atkinson.index(trained_agent_means_sc, epsilon=0.5),
+            ),
+            "\n",
+            (
+                nmin(trained_agent_means_cc),
+                quantile(trained_agent_means_cc, 0.25),
+                mean(trained_agent_means_cc),
+                median(trained_agent_means_cc),
+                quantile(trained_agent_means_cc, 0.75),
+                nmax(trained_agent_means_cc),
+                std(trained_agent_means_cc),
+                ineq.gini(trained_agent_means_cc),
+                ineq.atkinson.index(trained_agent_means_cc, epsilon=0.5),
+            ),
+        )
+        print(
+            "random agents:",
+            (
+                nmin(random_agent_means_tt),
+                quantile(random_agent_means_tt, 0.25),
+                mean(random_agent_means_tt),
+                median(random_agent_means_tt),
+                quantile(random_agent_means_tt, 0.75),
+                nmax(random_agent_means_tt),
+                std(random_agent_means_tt),
+                ineq.gini(random_agent_means_tt),
+                ineq.atkinson.index(random_agent_means_tt, epsilon=0.5),
+            ),
+            "\n",
+            (
+                nmin(random_agent_means_sc),
+                quantile(random_agent_means_sc, 0.25),
+                mean(random_agent_means_sc),
+                median(random_agent_means_sc),
+                quantile(random_agent_means_sc, 0.75),
+                nmax(random_agent_means_sc),
+                std(random_agent_means_sc),
+                ineq.gini(random_agent_means_sc),
+                ineq.atkinson.index(random_agent_means_sc, epsilon=0.5),
+            ),
+            "\n",
+            (
+                nmin(random_agent_means_cc),
+                quantile(random_agent_means_cc, 0.25),
+                mean(random_agent_means_cc),
+                median(random_agent_means_cc),
+                quantile(random_agent_means_cc, 0.75),
+                nmax(random_agent_means_cc),
+                std(random_agent_means_cc),
+                ineq.gini(random_agent_means_cc),
+                ineq.atkinson.index(random_agent_means_cc, epsilon=0.5),
+            ),
+        )
