@@ -251,7 +251,7 @@ def evaluate_solution(
         "TravelTime": mean(travel_time),
         "SocialCost": mean(time_cost_burden),
         "CombinedCost": mean(combined_cost),
-        "Profit": -mean(combined_cost),
+        "Profit": -mean(profit),
     }[optimise_for]
 
 def parse_args():
