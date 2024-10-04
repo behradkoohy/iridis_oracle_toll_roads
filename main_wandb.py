@@ -364,12 +364,14 @@ def run_exp(args):
             n_particles=args.n_particles, dimensions=(args.timesteps + 1) * 2, options=options, bounds=bounds,
             track=writer if args.track else None,
             wandb=wandb if args.track else None,
+            ftol_iter=100
         )
     elif args.actions == 'Fixed':
         optimizer = GlobalBestPSO(
             n_particles=args.n_particles, dimensions=2, options=options, bounds=bounds,
             track=writer if args.track else None,
             wandb=wandb if args.track else None,
+            ftol_iter=100
         )
     else:
         optimizer = GlobalBestPSO(
