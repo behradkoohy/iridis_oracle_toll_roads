@@ -127,9 +127,8 @@ class IntOptimizerPSO(ps.base.SwarmOptimizer):
         self.mean_neighbor_history = []
         self.pos_history = []
         self.velocity_history = []
-
         # This is the only change to the reset method
-        position = np.random.randint(2 if not self.bounds else self.bounds[0], 10 if not self.bounds else self.bounds[1], size=(self.n_particles, self.dimensions))
+        position = np.random.randint(2 if not self.bounds else self.bounds[0], 10 if not self.bounds else [x+1 for x in self.bounds[1]],size=(self.n_particles, self.dimensions))
         velocity = generate_velocity(self.n_particles, self.dimensions)
         self.swarm = ps.backend.Swarm(position, velocity, options=self.options)
 
