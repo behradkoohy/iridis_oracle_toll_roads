@@ -34,13 +34,13 @@ def parse_args():
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
-    parser.add_argument("--num-episodes", type=int, default=20000,
+    parser.add_argument("--num-episodes", type=int, default=20,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
     parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
-    parser.add_argument("--network-size", type=int, choices=[1,3,4,5], default=5,
+    parser.add_argument("--network-size", type=int, choices=[1,2,3,4,5], default=3,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large")
 
 
@@ -367,7 +367,7 @@ if __name__ == "__main__":
         road1_capacity=30,
         road1_fftraveltime=20,
         reward_fn=args.rewardfn,
-        n_car=args.num_cars
+        in_n_cars=args.num_cars
     )
     # max_cycles = env.timesteps * 10
     num_agents = 2
@@ -728,27 +728,27 @@ if __name__ == "__main__":
 
     # wandb.run.summary["travel_time"] = np.mean(env.travel_time)
     # exit()
-    if not args.track:
-        exit()
+    # if not args.track:
+    #     exit()
 
     with torch.no_grad():
         if args.random_cars:
             print('evaluating')
-            # trained agent performance
-            trained_agent_means_tt = []
-            trained_agent_means_sc = []
-            trained_agent_means_cc = []
-            trained_agent_means_pr = []
-            # random agent performance
-            random_agent_means_tt = []
-            random_agent_means_sc = []
-            random_agent_means_cc = []
-            random_agent_means_pr = []
             for eval_n_cars in [500, 600, 650, 700, 750, 800, 850, 900, 1000]:
                 print(eval_n_cars)
+                # trained agent performance
+                trained_agent_means_tt = []
+                trained_agent_means_sc = []
+                trained_agent_means_cc = []
+                trained_agent_means_pr = []
+                # random agent performance
+                random_agent_means_tt = []
+                random_agent_means_sc = []
+                random_agent_means_cc = []
+                random_agent_means_pr = []
                 for episode in range(50):
                     # trained agent on seed/n_cars
-                    obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
+                    obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars, set_cars=eval_n_cars)
                     obs = batchify_obs(obs, device)
                     while not any(terms) and not any(truncs):
                         if args.action_masks:
@@ -766,7 +766,7 @@ if __name__ == "__main__":
                     trained_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
 
                     # run random agent on the env
-                    obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
+                    obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars, set_cars=eval_n_cars)
                     # obs = batchify_obs(obs, device)
                     terms = [False]
                     truncs = [False]
