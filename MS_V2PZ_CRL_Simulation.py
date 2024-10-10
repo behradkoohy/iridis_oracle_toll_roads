@@ -34,13 +34,13 @@ def parse_args():
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
-    parser.add_argument("--num-episodes", type=int, default=20000,
+    parser.add_argument("--num-episodes", type=int, default=40000,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
     parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
-    parser.add_argument("--network-size", type=int, choices=[1,2,3,4,5], default=3,
+    parser.add_argument("--network-size", type=int, choices=[1,2,3,4], default=3,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large")
 
 
@@ -193,58 +193,6 @@ class Agent(nn.Module):
                 layer_init(nn.Linear(512, 512)),
                 nn.Tanh(),
                 layer_init(nn.Linear(512, 3), std=0.01),
-            )
-        elif args.network_size == 4:
-            self.critic = nn.Sequential(
-                layer_init(nn.Linear((12), 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1), std=1.0),
-            )
-            self.actor = nn.Sequential(
-                layer_init(nn.Linear((12), 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 3), std=0.01),
-            )
-        elif args.network_size == 5:
-            self.critic = nn.Sequential(
-                layer_init(nn.Linear((12), 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.BatchNorm1d(1024),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.BatchNorm1d(1024),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.BatchNorm1d(1024),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1), std=1.0),
-            )
-            self.actor = nn.Sequential(
-                layer_init(nn.Linear((12), 1024)),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.BatchNorm1d(1024),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.BatchNorm1d(1024),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 1024)),
-                nn.BatchNorm1d(1024),
-                nn.Tanh(),
-                layer_init(nn.Linear(1024, 3), std=0.01),
             )
 
     def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
@@ -436,7 +384,7 @@ if __name__ == "__main__":
 
     """ TRAINING LOGIC """
     # train for n number of episodes
-    # pbar = tqdm(range(args.num_episodes))
+    pbar = tqdm(range(args.num_episodes))
     global_step = 0
     while completed_eps < args.num_episodes:
         end_step = 0
@@ -517,7 +465,7 @@ if __name__ == "__main__":
             print(f"Batch n_cars: {batch_n_cars}")
 
         # lets see if batchwise-reward-norm will work
-        # pbar.update(args.eps_per_update)
+        pbar.update(args.eps_per_update)
         # if args.batch_return_norm:
         #     b_return_mean = rb_rewards.mean(axis=0)
         #     b_return_std = rb_rewards.std(axis=0)
