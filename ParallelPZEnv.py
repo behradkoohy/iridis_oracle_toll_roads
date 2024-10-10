@@ -40,7 +40,7 @@ class simulation_env(ParallelEnv):
         road1_capacity=30,
         road1_fftraveltime=20,
         reward_fn = "MinVehTravelTime",
-        n_car=n_cars,
+        in_n_cars=n_cars,
     ):
         """
         Params:
@@ -85,7 +85,10 @@ class simulation_env(ParallelEnv):
         self.timesteps = n_timesteps
         self.beta_dist_alpha = 5
         self.beta_dist_beta = 5
-        self.n_cars = n_car
+        if in_n_cars is None:
+            self.n_cars = n_cars
+        else:
+            self.n_cars = in_n_cars
 
         self.actions = None
 
@@ -283,7 +286,7 @@ class simulation_env(ParallelEnv):
     def action_space(self, agent):
         return Discrete(3)
 
-    def reset(self, seed=None, options=None, set_np_seed=None, random_cars=False):
+    def reset(self, seed=None, options=None, set_np_seed=None, random_cars=False, set_cars=None):
         # This is the stuff that PettingZoo needs
         self.agents = self.possible_agents[:]
 
@@ -303,7 +306,9 @@ class simulation_env(ParallelEnv):
         self.state = observations
         self.num_moves = 0
 
-        if random_cars:
+        if set_cars is not None:
+            self.n_cars = set_cars
+        elif random_cars:
             self.n_cars = randint(500, 1000)
 
         self.car_dist_arrival = self.generate_car_time_distribution(
