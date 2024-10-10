@@ -40,7 +40,7 @@ def parse_args():
                         help="number of cars in experiment")
     parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
-    parser.add_argument("--network-size", type=int, choices=[1,2,3,4], default=3,
+    parser.add_argument("--network-size", type=int, choices=[1,2,3], default=3,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large")
 
 
