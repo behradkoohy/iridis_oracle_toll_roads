@@ -34,14 +34,14 @@ def parse_args():
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
-    parser.add_argument("--num-episodes", type=int, default=40000,
+    parser.add_argument("--num-episodes", type=int, default=10000,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
     parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
-    parser.add_argument("--network-size", type=int, choices=[1,2,3], default=3,
-        help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large")
+    parser.add_argument("--network-size", type=int, choices=[1,2,3,5], default=5,
+        help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large, 5: joint AC")
 
 
     # parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
@@ -49,7 +49,7 @@ def parse_args():
     help = "the number of steps to run in each environment per policy rollout")
     parser.add_argument("--num-minibatches", type=int, default=4,
         help="the number of mini-batches")
-    parser.add_argument("--update-epochs", type=int, default=2,
+    parser.add_argument("--update-epochs", type=int, default=3,
         help="the K epochs to update the policy")
 
     # Args made by me
@@ -67,7 +67,7 @@ def parse_args():
         help="Normalises the agent's observations. If not set, observations will be raw values.")
     parser.add_argument("--rewardfn", type=str, default="MaxProfit", nargs="?", const=True,
         help="reward function for agent to use. has to be predefined.")
-    parser.add_argument("--action-masks", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--action-masks", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="Toggles whether invalid actions are masked or not.")
 
     parser.add_argument("--reward-norm", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
@@ -100,11 +100,11 @@ def parse_args():
         help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
     parser.add_argument("--ent-coef", type=float, default=0.01,
         help="coefficient of the entropy")
-    parser.add_argument("--vf-coef", type=float, default=0.1,
+    parser.add_argument("--vf-coef", type=float, default=1,
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.1,
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--eps_per_update", type=int, default=64, help="Number of episodes per update. If 1, same behaviour as before.")
+    parser.add_argument("--eps_per_update", type=int, default=8, help="Number of episodes per update. If 1, same behaviour as before.")
     args = parser.parse_args()
     args.num_envs = 2
     # args.batch_size = int(args.num_envs * args.num_steps)
@@ -194,6 +194,17 @@ class Agent(nn.Module):
                 nn.Tanh(),
                 layer_init(nn.Linear(512, 3), std=0.01),
             )
+        elif args.network_size == 5:
+            self.network = nn.Sequential(
+                layer_init(nn.Linear((12), 64)),
+                nn.Tanh(),
+                layer_init(nn.Linear(64, 64)),
+                nn.Tanh(),
+                layer_init(nn.Linear(64, 64)),
+                nn.Tanh(),
+            )
+            self.actor = layer_init(nn.Linear(64, 3), std=0.01)
+            self.critic = layer_init(nn.Linear(64, 1), std=1)
 
     def _layer_init(self, layer, std=np.sqrt(2), bias_const=0.0):
         torch.nn.init.orthogonal_(layer.weight, std)
@@ -213,12 +224,16 @@ class Agent(nn.Module):
     #     return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
     def get_action_and_value(self, x, action=None, action_masks=None):
         x = x.float()
-        logits = self.actor(x)
+        if args.network_size == 5:
+            hidden = self.network(x)
+            logits = self.actor(hidden)
+        else:
+            logits = self.actor(x)
         probs = Categorical(logits=logits)
         if action is None:
             action = probs.sample()
         if not args.action_masks:
-            return action, probs.log_prob(action), probs.entropy(), self.critic(x)
+            return action, probs.log_prob(action), probs.entropy(), self.critic(self.network(x) if args.network_size == 5 else x)
         else:
             if action_masks is None:
                 raise Exception("Action Masks called but none passed to action and value funct.")
