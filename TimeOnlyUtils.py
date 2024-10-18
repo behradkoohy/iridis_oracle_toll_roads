@@ -1,5 +1,5 @@
 from collections import defaultdict, Counter, deque
-from functools import partial
+from functools import partial, lru_cache
 import numpy as np
 from numpy import mean, quantile, median, std
 from numpy import min as nmin
@@ -14,7 +14,7 @@ def reduced_is_simulation_complete(roadQueues, time, timesteps):
     else:
         return False
 
-
+@lru_cache(maxsize=None)
 def volume_delay_function(a, b, c, t0, v):
     """
     :param v: volume of cars on road currently

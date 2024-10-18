@@ -7,6 +7,7 @@ from numpy import max as nmax
 import inequalipy as ineq
 from collections import Counter, defaultdict, deque
 from functools import partial
+from multiprocessing import Pool
 import pyswarms as ps
 from TrackedGlobalBestPSO import GlobalBestPSO
 
@@ -95,9 +96,13 @@ def evaluate_solution(
     """
 
     roadQueues = {r: [] for r in [0, 1]}
+    # roadVDFS = {
+    #     0: partial(volume_delay_function, 0.656, 4.8, 15, 20),
+    #     1: partial(volume_delay_function, 0.656, 4.8, 30, 20),
+    # }
     roadVDFS = {
-        0: partial(volume_delay_function, 0.656, 4.8, 15, 20),
-        1: partial(volume_delay_function, 0.656, 4.8, 30, 20),
+        0: partial(volume_delay_function, 0.656, 4.8, 20, 15),
+        1: partial(volume_delay_function, 0.656, 4.8, 20, 30),
     }
     roadTravelTime = {r: roadVDFS[r](0) for r in roadVDFS.keys()}
     arrival_timestep_dict = Counter(car_dist_arrival)
@@ -267,9 +272,10 @@ def parse_args():
     parser.add_argument("--beta_beta", type=int, help="The beta value for the beta distribution", default=5)
     parser.add_argument("--car_vot_lowerbound", type=float, help="The lower bound for the car VOT distribution", default=0.0)
     parser.add_argument("--car_vot_upperbound", type=float, help="The upper bound for the car VOT distribution", default=1.0)
-    parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=1000)
+    parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=20)
     parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=100)
     parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=False)
+    # parser.add_argument("--multithread", type=bool, help="Track the experiment with Weights and Biases", default=True)
     return parser.parse_args()
     # fmt: on
 
@@ -318,23 +324,38 @@ def run_exp(args):
             return 1
         else:
             return 0
+    partial_sol_fn = partial(
+        evaluate_solution,
+        car_dist_arrival=car_dist_arrival,
+        car_vot_dist=car_vot_arrival,
+        road_price_upt=road_price_upt,
+        timesteps=args.timesteps,
+        args=args,
+        seq_decisions=False,
+        optimise_for=args.optimise
+    )
     def objective_function(solution):
         # solution = [list(map(discrete_activate_funct, sol)) for sol in solution]
         # if args.actions == "Timestep":
         #     solution = [list(map(discrete_activate_funct, sol)) for sol in solution]
-        score = [
-            evaluate_solution(
-                sol,
-                car_dist_arrival,
-                car_vot_arrival,
-                road_price_upt,
-                args.timesteps,
-                args,
-                seq_decisions=False,
-                optimise_for=args.optimise,
-            )
-            for sol in solution
-        ]
+
+        # score = [
+        #     evaluate_solution(
+        #         sol,
+        #         car_dist_arrival,
+        #         car_vot_arrival,
+        #         road_price_upt,
+        #         args.timesteps,
+        #         args,
+        #         seq_decisions=False,
+        #         optimise_for=args.optimise,
+        #     )
+        #     for sol in solution
+        # ]
+        # score =
+        pool = Pool()
+        score = list(pool.map(partial_sol_fn, solution))
+
         return score
     if args.actions == 'Linear':
         min_bound = [-100 for _ in range(4)]

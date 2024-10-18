@@ -34,13 +34,13 @@ def parse_args():
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
-    parser.add_argument("--num-episodes", type=int, default=10000,
+    parser.add_argument("--num-episodes", type=int, default=40000,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
     parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
-    parser.add_argument("--network-size", type=int, choices=[1,2,3,5], default=5,
+    parser.add_argument("--network-size", type=int, choices=[1,2,3,5], default=3,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large, 5: joint AC")
 
 
@@ -67,7 +67,7 @@ def parse_args():
         help="Normalises the agent's observations. If not set, observations will be raw values.")
     parser.add_argument("--rewardfn", type=str, default="MaxProfit", nargs="?", const=True,
         help="reward function for agent to use. has to be predefined.")
-    parser.add_argument("--action-masks", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--action-masks", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggles whether invalid actions are masked or not.")
 
     parser.add_argument("--reward-norm", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
@@ -100,11 +100,11 @@ def parse_args():
         help="Toggles whether or not to use a clipped loss for the value function, as per the paper.")
     parser.add_argument("--ent-coef", type=float, default=0.01,
         help="coefficient of the entropy")
-    parser.add_argument("--vf-coef", type=float, default=1,
+    parser.add_argument("--vf-coef", type=float, default=0.1,
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.1,
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--eps_per_update", type=int, default=8, help="Number of episodes per update. If 1, same behaviour as before.")
+    parser.add_argument("--eps_per_update", type=int, default=64, help="Number of episodes per update. If 1, same behaviour as before.")
     args = parser.parse_args()
     args.num_envs = 2
     # args.batch_size = int(args.num_envs * args.num_steps)
@@ -325,10 +325,14 @@ if __name__ == "__main__":
         fixed_road_cost=50.0,
         arrival_dist="Linear" if args.linear_arrival_dist else "Beta",
         normalised_obs=True if args.normalised_observations else False,
-        road0_capacity=15,
-        road0_fftraveltime=20,
-        road1_capacity=30,
-        road1_fftraveltime=20,
+        # road0_capacity=15,
+        # road0_fftraveltime=20,
+        # road1_capacity=30,
+        # road1_fftraveltime=20,
+        road0_capacity=20,
+        road0_fftraveltime=15,
+        road1_capacity=20,
+        road1_fftraveltime=30,
         reward_fn=args.rewardfn,
         in_n_cars=args.num_cars
     )
