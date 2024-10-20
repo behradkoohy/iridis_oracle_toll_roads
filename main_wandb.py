@@ -272,9 +272,9 @@ def parse_args():
     parser.add_argument("--beta_beta", type=int, help="The beta value for the beta distribution", default=5)
     parser.add_argument("--car_vot_lowerbound", type=float, help="The lower bound for the car VOT distribution", default=0.0)
     parser.add_argument("--car_vot_upperbound", type=float, help="The upper bound for the car VOT distribution", default=1.0)
-    parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=20)
+    parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=1000)
     parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=100)
-    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=False)
+    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=True)
     # parser.add_argument("--multithread", type=bool, help="Track the experiment with Weights and Biases", default=True)
     return parser.parse_args()
     # fmt: on
