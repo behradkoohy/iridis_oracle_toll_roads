@@ -44,6 +44,8 @@ def parse_args():
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large, 5: joint AC")
     parser.add_argument("--road_0_cap", type=int, default=20, nargs="?", const=True,
                         help="capacity of road 0")
+    parser.add_argument("--road_1_cap", type=int, default=20, nargs="?", const=True,
+                        help="capacity of road 1")
 
 
     # parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
@@ -333,7 +335,7 @@ if __name__ == "__main__":
         # road1_fftraveltime=20,
         road0_capacity=args.road_0_cap,
         road0_fftraveltime=15,
-        road1_capacity=20,
+        road1_capacity=args.road_1_cap,
         road1_fftraveltime=30,
         reward_fn=args.rewardfn,
         in_n_cars=args.num_cars
