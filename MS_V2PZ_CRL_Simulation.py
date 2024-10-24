@@ -42,6 +42,8 @@ def parse_args():
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
     parser.add_argument("--network-size", type=int, choices=[1,2,3,5], default=3,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large, 5: joint AC")
+    parser.add_argument("--road_0_cap", type=int, default=20, nargs="?", const=True,
+                        help="capacity of road 0")
 
 
     # parser.add_argument("--num-steps", type=int, default=((n_timesteps+3)*5),
@@ -329,7 +331,7 @@ if __name__ == "__main__":
         # road0_fftraveltime=20,
         # road1_capacity=30,
         # road1_fftraveltime=20,
-        road0_capacity=20,
+        road0_capacity=args.road_0_cap,
         road0_fftraveltime=15,
         road1_capacity=20,
         road1_fftraveltime=30,
