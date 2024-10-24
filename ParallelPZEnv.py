@@ -13,6 +13,7 @@ from pettingzoo import ParallelEnv
 from gymnasium.spaces import Discrete, Box
 
 import numpy.random as nprand
+from wandb import agent
 
 from RLUtils import quick_get_new_travel_times
 from TimeOnlyUtils import QueueRanges, volume_delay_function
@@ -131,6 +132,7 @@ class simulation_env(ParallelEnv):
         self.agent_price_range = {agent: None for agent in range(self.num_routes)}
         self.agent_maxes = {agent: None for agent in range(self.num_routes)}
         self.agent_mins = {agent: None for agent in range(self.num_routes)}
+        self.agent_prices = {agent: None for agent in range(self.num_routes)}
     #
     # def update_rolling_norms(self, agent, new_value):
     #     # n_old = len(self.agent_reward_norms[agent]) # the lowest this can be is 0
@@ -359,7 +361,7 @@ class simulation_env(ParallelEnv):
         self.agent_price_range = {agent: 0 for agent in range(self.num_routes)}
         self.agent_maxes = {agt: price for agt, price in self.roadPrices.items()}
         self.agent_mins = {agt: price for agt, price in self.roadPrices.items()}
-
+        self.agent_prices = {agt: [price] for agt, price in self.roadPrices.items()}
         self.queues_manager.reset()
 
         self.time_out_car = {r: defaultdict(int) for r in self.roadVDFS.keys()}
@@ -444,6 +446,9 @@ class simulation_env(ParallelEnv):
                 self.agent_price_range[agent_id] = (
                     self.agent_maxes[agent_id] - self.agent_mins[agent_id]
                 )
+
+            self.agent_prices[agent_id] = self.agent_prices[agent_id] + [self.roadPrices[agent_id]]
+
 
         # Here, we need to update the simulation and push forward with one timestep
         # Once we've updated all of that, we then update the rewards

@@ -683,6 +683,24 @@ if __name__ == "__main__":
         writer.add_scalar(
             "road/road_1_price_range", env.agent_price_range[1], global_step
         )
+        writer.add_scalar(
+            "road/road_0_max_price", env.agent_maxes[0], global_step
+        )
+        writer.add_scalar(
+            "road/road_1_max_price", env.agent_maxes[1], global_step
+        )
+        writer.add_scalar(
+            "road/road_0_min_price", env.agent_mins[0], global_step
+        )
+        writer.add_scalar(
+            "road/road_1_min_price", env.agent_mins[1], global_step
+        )
+        writer.add_scalar(
+            "road/road_0_med_price", np.median(env.agent_prices[0]), global_step
+        )
+        writer.add_scalar(
+            "road/road_1_med_price", np.median(env.agent_prices[0]), global_step
+        )
         # writer.add_scalar("road/road_0_action_entropy", agent_entropy[0], global_step)
         # writer.add_scalar("road/road_1_action_entropy", agent_entropy[1], global_step)
 
