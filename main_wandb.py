@@ -101,8 +101,8 @@ def evaluate_solution(
     #     1: partial(volume_delay_function, 0.656, 4.8, 30, 20),
     # }
     roadVDFS = {
-        0: partial(volume_delay_function, 0.656, 4.8, 20, 15),
-        1: partial(volume_delay_function, 0.656, 4.8, 20, 30),
+        0: partial(volume_delay_function, 0.656, 4.8, args.road_0_cap, args.road_0_t0),
+        1: partial(volume_delay_function, 0.656, 4.8, args.road_1_cap, args.road_1_t0),
     }
     roadTravelTime = {r: roadVDFS[r](0) for r in roadVDFS.keys()}
     arrival_timestep_dict = Counter(car_dist_arrival)
@@ -273,8 +273,12 @@ def parse_args():
     parser.add_argument("--car_vot_lowerbound", type=float, help="The lower bound for the car VOT distribution", default=0.0)
     parser.add_argument("--car_vot_upperbound", type=float, help="The upper bound for the car VOT distribution", default=1.0)
     parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=1000)
-    parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=100)
+    parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=10)
     parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=True)
+    parser.add_argument("--road_0_t0", type=int, help="Free flow travel time of road 0, default 15", default=15)
+    parser.add_argument("--road_1_t0", type=int, help="Free flow travel time of road 1, default 30", default=30)
+    parser.add_argument("--road_0_cap", type=int, help="Free flow capacity of road 0, default 20", default=20)
+    parser.add_argument("--road_1_cap", type=int, help="Free flow capacity of road 1, default 20", default=20)
     # parser.add_argument("--multithread", type=bool, help="Track the experiment with Weights and Biases", default=True)
     return parser.parse_args()
     # fmt: on
