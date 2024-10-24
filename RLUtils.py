@@ -1,6 +1,5 @@
 from TimeOnlyUtils import get_cars_leaving_during_trip, QueueRanges
 
-
 def get_sum_of_dict(cars_leaving_dict):
     cumsum_base = 0
     return [cumsum_base := cumsum_base + n for n in cars_leaving_dict.values()]

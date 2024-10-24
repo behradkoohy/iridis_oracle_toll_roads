@@ -33,7 +33,7 @@ class simulation_env(ParallelEnv):
         render_mode=None,
         initial_road_cost="Fixed",
         fixed_road_cost=20.0,
-        arrival_dist="Linear",
+        arrival_dist="Beta",
         normalised_obs=False,
         road0_capacity=15,
         road0_fftraveltime=20,
@@ -97,6 +97,7 @@ class simulation_env(ParallelEnv):
 
         self.bound = 1
         self.price_lower_bound = self.bound
+        # self.price_lower_bound = 0
         # self.price_upper_bound = math.floor((self.timesteps * self.bound)/2)
         self.price_upper_bound = 125
 
@@ -517,6 +518,7 @@ class simulation_env(ParallelEnv):
                 ]
                 + 1
             )
+
         # Uncomment below for minimising travel time
         # norm_rewards = {}
         # for agent in self.roadVDFS.keys():
