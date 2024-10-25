@@ -32,6 +32,7 @@ class simulation_env(ParallelEnv):
     def __init__(
         self,
         render_mode=None,
+        num_routes=2,
         initial_road_cost="Fixed",
         fixed_road_cost=20.0,
         arrival_dist="Beta",
@@ -42,6 +43,7 @@ class simulation_env(ParallelEnv):
         road1_fftraveltime=20,
         reward_fn = "MinVehTravelTime",
         in_n_cars=n_cars,
+        road_vdfs=None,
     ):
         """
         Params:
@@ -65,11 +67,15 @@ class simulation_env(ParallelEnv):
         reward_fn:          reward function used to calculate agent reward.
                             currently: [MaxProfit, MinVehTravelTime, MinCombinedCost]
         """
-        self.num_routes = 2
+        self.num_routes = num_routes
+        if self.num_routes > 2 and road_vdfs is None:
+            raise Exception("More than 2 routes defined, but no VDFs provided for them. Fix this and re-run.")
         self.possible_agents = ["route_" + str(r) for r in range(self.num_routes)]
         self.agent_name_mapping = dict(
             zip(self.possible_agents, list(range(len(self.possible_agents))))
         )
+
+        self.default_road_vdfs = road_vdfs
 
         self.render_mode = None
         self.initial_road_cost = initial_road_cost
@@ -112,16 +118,21 @@ class simulation_env(ParallelEnv):
 
 
         # if normalised_obs:
-        self.max_road_travel_time = [
-            volume_delay_function(
-                None, None, self.road0_capacity, self.road0_fftraveltime, n_cars
-            ),
-            volume_delay_function(
-                None, None, self.road1_capacity, self.road1_fftraveltime, n_cars
-            ),
-        ]
+        if self.num_routes == 2 and road_vdfs is None:
+            self.max_road_travel_time = [
+                volume_delay_function(
+                    None, None, self.road0_capacity, self.road0_fftraveltime, n_cars
+                ),
+                volume_delay_function(
+                    None, None, self.road1_capacity, self.road1_fftraveltime, n_cars
+                ),
+            ]
+        else:
+            self.max_road_travel_time = [
+                vdf(n_cars) for vdf in self.default_road_vdfs
+            ]
 
-        self.queues_manager = QueueRanges()
+        self.queues_manager = QueueRanges(self.num_routes)
         #
         # self.agent_reward_norms_lens = {agent: None for agent in range(self.num_routes)}
         # self.agent_reward_norms_mean = {agent: None for agent in range(self.num_routes)}
@@ -257,25 +268,25 @@ class simulation_env(ParallelEnv):
         """
         if self.normalised_obs:
             return Box(
-                low=np.array([0 for _ in range(12)]),
+                low=np.array([0 for _ in range(8+(4*(self.num_routes-1)))]),
                 high=np.array([1.0 for _ in range(8)] + [2, 2] + [1.0 for _ in range(2)]),
                 dtype=np.float64,
             )
         else:
             return Box(
-                low=np.array([0, 0, 0, 15, 0, 0, 15, 0, 0, 0, 0, 0]),
+                low=np.array([0 for _ in range(8+(4*(self.num_routes-1)))]),
                 high=np.array(
                     [
                         self.n_cars,
                         40 + (n_timesteps * self.bound),
                         self.n_cars,
                         self.max_road_travel_time[1],
-                        self.n_cars,
-                        40 + (n_timesteps * self.bound),
-                        self.max_road_travel_time[1],
+                        *tuple(self.n_cars for _ in range(self.num_routes - 1)),
+                        *tuple((40 + (n_timesteps * self.bound) for _ in range(self.num_routes -1))),
+                        *tuple(self.max_road_travel_time[1] for _ in range(self.num_routes -1)),
                         n_timesteps + 1,
                         2,
-                        2,
+                        *tuple(2 for _ in range(self.num_routes - 1)),
                         self.n_cars,
                         self.n_cars,
                     ]
@@ -299,11 +310,12 @@ class simulation_env(ParallelEnv):
         # self.truncations = {agent: False for agent in self.agents}
         if self.normalised_obs:
             observations = {
-                agent: np.array([0 for _ in range(12)]) for agent in self.agents
+                agent: np.array([0 for _ in range(8+(4*(self.num_agents-1)))]) for agent in self.agents
             }
         else:
             observations = {
-                agent: np.array([0, 0, 0, 15, 0, 0, 15, 0, 0, 0, 0, 0]) for agent in self.agents
+                # agent: np.array([0, 0, 0, 15, 0, 0, 15, 0, 0, 0, 0, 0]) for agent in self.agents
+                agent: np.array([0 for _ in range(8 + (4 * (self.num_agents - 1)))]) for agent in self.agents
             }
 
         self.state = observations
@@ -322,22 +334,29 @@ class simulation_env(ParallelEnv):
         )
         self.time = 0
         self.roadQueues = {r: [] for r in range(self.num_routes)}
-        self.roadVDFS = {
-            0: partial(
-                volume_delay_function,
-                0.656,
-                4.8,
-                self.road0_capacity,
-                self.road0_fftraveltime,
-            ),
-            1: partial(
-                volume_delay_function,
-                0.656,
-                4.8,
-                self.road1_capacity,
-                self.road1_fftraveltime,
-            ),
-        }
+
+        if self.num_routes == 2 and self.default_road_vdfs is None:
+            # self.roadVDFs = self.default_road_vdfs
+            self.roadVDFS = {
+                0: partial(
+                    volume_delay_function,
+                    0.656,
+                    4.8,
+                    self.road0_capacity,
+                    self.road0_fftraveltime,
+                ),
+                1: partial(
+                    volume_delay_function,
+                    0.656,
+                    4.8,
+                    self.road1_capacity,
+                    self.road1_fftraveltime,
+                ),
+            }
+        else:
+            self.roadVDFS = {x: vdf for x, vdf in enumerate(self.default_road_vdfs)}
+
+
         self.roadTravelTime = {r: self.roadVDFS[r](0) for r in self.roadVDFS.keys()}
         self.arrival_timestep_dict = Counter(self.car_dist_arrival)
 
@@ -390,7 +409,7 @@ class simulation_env(ParallelEnv):
                 + [self.roadTravelTime[agt] for agt in not_agent_id]
                 + [self.time]
                 + [self.actions['route_' + str(agent_id)] if self.actions is not None else 1]
-                + [self.actions['route_' + str(not_agent_id[0])]  if self.actions is not None else 1]
+                + [(self.actions['route_' + str(n_agt)] if self.actions is not None else 1) for n_agt in not_agent_id]
                 + [len(self.arrived_vehicles)]
                 + [self.n_cars - len(self.arrived_vehicles)]
             )
@@ -407,7 +426,7 @@ class simulation_env(ParallelEnv):
                     + [(self.roadTravelTime[agt] - (self.road0_fftraveltime if agt == 0 else self.road1_fftraveltime)) / self.max_road_travel_time[agt] for agt in not_agent_id]
                     + [self.time / n_timesteps]
                     + [self.actions['route_' + str(agent_id)] if self.actions is not None else 1]
-                    + [self.actions['route_' + str(not_agent_id[0])] if self.actions is not None else 1]
+                    + [(self.actions['route_' + str(n_agt)] if self.actions is not None else 1) for n_agt in not_agent_id]
                     + [len(self.arrived_vehicles) / self.n_cars]
                     + [(self.n_cars - len(self.arrived_vehicles)) / self.n_cars]
             )

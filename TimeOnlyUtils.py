@@ -32,15 +32,19 @@ def volume_delay_function(a, b, c, t0, v):
     return t0 * (1 + (a * ((v / c) ** b)))
 
 class QueueRanges:
-    def __init__(self):
-        self.starts = {0:0, 1:0}
-        self.stops = {0:0, 1:0}
-        self.queues = {0:{}, 1:{}}
+    def __init__(self, num_routes):
+        self.num_routes = num_routes
+        # self.starts = {0:0, 1:0}
+        # self.stops = {0:0, 1:0}
+        # self.queues = {0:{}, 1:{}}
+        self.starts = {n: 0 for n in range(self.num_routes)}
+        self.stops = {n: 0 for n in range(self.num_routes)}
+        self.queues = {n: {} for n in range(self.num_routes)}
 
     def reset(self):
-        self.starts = {0: 0, 1: 0}
-        self.stops = {0: 0, 1: 0}
-        self.queues = {0: {}, 1: {}}
+        self.starts = {n: 0 for n in range(self.num_routes)}
+        self.stops = {n: 0 for n in range(self.num_routes)}
+        self.queues = {n: {} for n in range(self.num_routes)}
 
 def get_cars_leaving_during_trip(time_out_car, road, time, max_travel_eta):
     road_dict = time_out_car[road]  # Pre-fetch the dictionary for the specific road
