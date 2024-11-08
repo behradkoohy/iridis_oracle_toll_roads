@@ -38,7 +38,7 @@ def parse_args():
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
-    parser.add_argument("--num-episodes", type=int, default=100,
+    parser.add_argument("--num-episodes", type=int, default=10000,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
@@ -359,7 +359,7 @@ if __name__ == "__main__":
     env = simulation_env(
         num_routes=num_agents,
         initial_road_cost="Fixed",
-        fixed_road_cost=50.0,
+        fixed_road_cost=20.0,
         arrival_dist="Linear" if args.linear_arrival_dist else "Beta",
         normalised_obs=True if args.normalised_observations else False,
         # road0_capacity=15,
