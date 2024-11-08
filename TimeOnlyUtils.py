@@ -27,8 +27,8 @@ def volume_delay_function(a, b, c, t0, v):
     link for default value info:
     https://www.degruyter.com/document/doi/10.1515/eng-2022-0022/html?lang=en
     """
-    a = 0.68
-    b = 2.73
+    a = 0.656
+    b = 4.8
     return t0 * (1 + (a * ((v / c) ** b)))
 
 class QueueRanges:

@@ -44,6 +44,7 @@ class simulation_env(ParallelEnv):
         reward_fn = "MinVehTravelTime",
         in_n_cars=n_cars,
         road_vdfs=None,
+        free_roads=None, #TODO: finish implementing this
     ):
         """
         Params:
@@ -87,6 +88,9 @@ class simulation_env(ParallelEnv):
         self.road1_capacity = road1_capacity
         self.road1_fftraveltime = road1_fftraveltime
         self.reward_fn = reward_fn
+
+        #TODO: finish implementing this
+        self.free_roads = free_roads
 
         # parameters that should mostly stay the same. if they need changing, changing in here should edit all exps
         self.timesteps = n_timesteps

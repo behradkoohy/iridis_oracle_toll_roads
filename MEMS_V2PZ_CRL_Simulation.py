@@ -38,11 +38,11 @@ def parse_args():
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
-    parser.add_argument("--num-episodes", type=int, default=10000,
+    parser.add_argument("--num-episodes", type=int, default=100,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
-    parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
     parser.add_argument("--network-size", type=int, choices=[1,2,3,5], default=3,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large, 5: joint AC")
@@ -328,7 +328,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("mps" if torch.backends.mps else "cpu")
 
-    num_agents = 3
+    num_agents = 2
     num_actions = 3
 
     road_vdfs = [
@@ -336,23 +336,23 @@ if __name__ == "__main__":
             volume_delay_function,
             0.656,
             4.8,
-            15,
-            20
+            1e20,
+            15
         ),
         partial(
             volume_delay_function,
             0.656,
             4.8,
+            1e20,
             30,
-            20,
         ),
-        partial(
-            volume_delay_function,
-            0.656,
-            4.8,
-            60,
-            20,
-        ),
+        # partial(
+        #     volume_delay_function,
+        #     0.656,
+        #     4.8,
+        #     60,
+        #     20,
+        # ),
     ]
 
     """ ENV SETUP """
@@ -441,6 +441,7 @@ if __name__ == "__main__":
 
     completed_eps = 0
 
+
     """ TRAINING LOGIC """
     # train for n number of episodes
     pbar = tqdm(range(args.num_episodes))
@@ -523,7 +524,6 @@ if __name__ == "__main__":
         if args.random_cars:
             print(f"Batch n_cars: {batch_n_cars}")
 
-        # lets see if batchwise-reward-norm will work
         pbar.update(args.eps_per_update)
         # if args.batch_return_norm:
         #     b_return_mean = rb_rewards.mean(axis=0)
@@ -813,11 +813,18 @@ if __name__ == "__main__":
             trained_agent_means_sc = []
             trained_agent_means_cc = []
             trained_agent_means_pr = []
+            trained_agent_median_price = []
+            # random agent performance
+            random_agent_means_tt = []
+            random_agent_means_sc = []
+            random_agent_means_cc = []
+            random_agent_means_pr = []
+            random_agent_median_price = []
             for episode in range(50):
-                obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
+                # trained agent on seed/n_cars
+                # obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars, set_cars=eval_n_cars)
+                obs, infos = env.reset(seed=None, set_np_seed=episode, set_cars=args.num_cars)
                 obs = batchify_obs(obs, device)
-                terms = [False]
-                truncs = [False]
                 while not any(terms) and not any(truncs):
                     if args.action_masks:
                         s_masks = torch.tensor([info[agt]['action_mask'] for agt in env.agents])
@@ -828,23 +835,14 @@ if __name__ == "__main__":
                     obs = batchify_obs(obs, device)
                     terms = [terms[a] for a in terms]
                     truncs = [truncs[a] for a in truncs]
-
-                print("VOT/TIMESeed:", episode)
-                # print(env.car_dist_arrival)
-                # print(env.car_vot_arrival)
-                print(f"Travel Time: {np.mean(env.travel_time)}")
-                print(f"Time-Cost Burden Score: {np.mean(env.time_cost_burden)}")
-                print(f"Combined Cost Score: {np.mean(env.combined_cost)}")
                 trained_agent_means_tt.append(np.mean(env.travel_time))
                 trained_agent_means_sc.append(np.mean(env.time_cost_burden))
                 trained_agent_means_cc.append(np.mean(env.combined_cost))
                 trained_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
-
-            random_agent_means_tt = []
-            random_agent_means_sc = []
-            random_agent_means_cc = []
-            for episode in range(50):
-                obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars)
+                trained_agent_median_price.append([np.median(agt_price) for agt_price in env.agent_prices.values()])
+                # run random agent on the env
+                obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars,
+                                       set_cars=args.num_cars)
                 # obs = batchify_obs(obs, device)
                 terms = [False]
                 truncs = [False]
@@ -852,31 +850,60 @@ if __name__ == "__main__":
                     # this is where you would insert your policy
                     actions = {agent: randint(0, 2) for agent in env.agents}
                     observations, rewards, terminations, truncations, infos = env.step(actions)
-                print("VOT/TIMESeed:", episode)
-                print(f"Travel Time: {np.mean(env.travel_time)}")
-                print(f"Time-Cost Burden Score: {np.mean(env.time_cost_burden)}")
-                print(f"Combined Cost Score: {np.mean(env.combined_cost)}")
                 random_agent_means_tt.append(np.mean(env.travel_time))
                 random_agent_means_sc.append(np.mean(env.time_cost_burden))
                 random_agent_means_cc.append(np.mean(env.combined_cost))
-                random_agent_means_cc.append(env.road_profits[0] + env.road_profits[1])
+                random_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
+                random_agent_median_price.append([np.median(agt_price) for agt_price in env.agent_prices.values()])
+            if args.track:
+                wandb.run.summary[f"{args.num_cars}/travel_time"] = np.mean(trained_agent_means_tt)
+                wandb.run.summary[f"{args.num_cars}/social_cost"] = np.mean(trained_agent_means_sc)
+                wandb.run.summary[f"{args.num_cars}/combined_cost"] = np.mean(trained_agent_means_cc)
+                wandb.run.summary[f"{args.num_cars}/profit"] = np.mean(trained_agent_means_pr)
+                wandb.run.summary[f"{args.num_cars}/gini_coef_tt"] = ineq.gini(trained_agent_means_tt)
+                wandb.run.summary[f"{args.num_cars}/atki_indx_tt"] = ineq.atkinson.index(trained_agent_means_tt,
+                                                                                       epsilon=0.5)
+
+                wandb.run.summary[f"{args.num_cars}/rng_travel_time"] = np.mean(random_agent_means_tt)
+                wandb.run.summary[f"{args.num_cars}/rng_social_cost"] = np.mean(random_agent_means_sc)
+                wandb.run.summary[f"{args.num_cars}/rng_combined_cost"] = np.mean(random_agent_means_cc)
+                wandb.run.summary[f"{args.num_cars}/rng_profit"] = np.mean(random_agent_means_pr)
+                for agt in range(env.num_routes):
+                    wandb.run.summary[f"{args.num_cars}/r{agt}_med_price"] = np.mean(
+                        [x[agt] for x in trained_agent_median_price])
+                    # np.mean([x[agt] for x in trained_agent_median_price])
+                # writer.add_scalar(f"road/road_{agt_tr}_med_price", np.median(env.agent_prices[agt_tr]), global_step)
+
+                # Gap to Random Agent
+                wandb.run.summary[f"{args.num_cars}/tt_performance_gap"] = np.mean(trained_agent_means_tt) - np.mean(
+                    random_agent_means_tt)
+                wandb.run.summary[f"{args.num_cars}/sc_performance_gap"] = np.mean(trained_agent_means_sc) - np.mean(
+                    random_agent_means_sc)
+                wandb.run.summary[f"{args.num_cars}/cc_performance_gap"] = np.mean(trained_agent_means_cc) - np.mean(
+                    random_agent_means_cc)
+                wandb.run.summary[f"{args.num_cars}/gini_perf_gap"] = ineq.gini(trained_agent_means_tt) - ineq.gini(
+                    random_agent_means_tt)
+                wandb.run.summary[f"{args.num_cars}/atki_indx_tt"] = ineq.atkinson.index(trained_agent_means_tt,
+                                                                                       epsilon=0.5) - ineq.atkinson.index(
+                    random_agent_means_tt, epsilon=0.5)
 
 
-        if args.track:
-            # Pure values
-            wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
-            wandb.run.summary["social_cost"] = np.mean(trained_agent_means_sc)
-            wandb.run.summary["combined_cost"] = np.mean(trained_agent_means_cc)
-            wandb.run.summary["profit"] = np.mean(trained_agent_means_pr)
-            wandb.run.summary['gini_coef_tt'] = ineq.gini(trained_agent_means_tt)
-            wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)
 
-            # Gap to Random Agent
-            wandb.run.summary["tt_performance_gap"] = np.mean(trained_agent_means_tt) - np.mean(random_agent_means_tt)
-            wandb.run.summary["sc_performance_gap"] = np.mean(trained_agent_means_sc) - np.mean(random_agent_means_sc)
-            wandb.run.summary["cc_performance_gap"] = np.mean(trained_agent_means_cc) - np.mean(random_agent_means_cc)
-            wandb.run.summary['gini_perf_gap'] = ineq.gini(trained_agent_means_tt) - ineq.gini(random_agent_means_tt)
-            wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5) - ineq.atkinson.index(random_agent_means_tt, epsilon=0.5)
+        # if args.track:
+        #     # Pure values
+        #     wandb.run.summary["travel_time"] = np.mean(trained_agent_means_tt)
+        #     wandb.run.summary["social_cost"] = np.mean(trained_agent_means_sc)
+        #     wandb.run.summary["combined_cost"] = np.mean(trained_agent_means_cc)
+        #     wandb.run.summary["profit"] = np.mean(trained_agent_means_pr)
+        #     wandb.run.summary['gini_coef_tt'] = ineq.gini(trained_agent_means_tt)
+        #     wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)
+        #
+        #     # Gap to Random Agent
+        #     wandb.run.summary["tt_performance_gap"] = np.mean(trained_agent_means_tt) - np.mean(random_agent_means_tt)
+        #     wandb.run.summary["sc_performance_gap"] = np.mean(trained_agent_means_sc) - np.mean(random_agent_means_sc)
+        #     wandb.run.summary["cc_performance_gap"] = np.mean(trained_agent_means_cc) - np.mean(random_agent_means_cc)
+        #     wandb.run.summary['gini_perf_gap'] = ineq.gini(trained_agent_means_tt) - ineq.gini(random_agent_means_tt)
+        #     wandb.run.summary['atki_indx_tt'] = ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5) - ineq.atkinson.index(random_agent_means_tt, epsilon=0.5)
 
         print(
             "trained agents:",
