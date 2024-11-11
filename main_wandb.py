@@ -107,7 +107,7 @@ def evaluate_solution(
     roadTravelTime = {r: roadVDFS[r](0) for r in roadVDFS.keys()}
     arrival_timestep_dict = Counter(car_dist_arrival)
     arrived_vehicles = []
-
+    roadPricesTracked = {r: [] for r in roadVDFS.keys()}
     sol_deque = deque(solution)
     car_vot_deque = deque(car_vot_dist)
 
@@ -136,7 +136,7 @@ def evaluate_solution(
     arrived_vehicles = []
     time = 0
 
-    queue_ranges = QueueRanges()
+    queue_ranges = QueueRanges(num_routes=2)
     vdf_cache = {agent: {} for agent in range(2)}
 
     while not time >= timesteps + 1:
@@ -153,6 +153,7 @@ def evaluate_solution(
         elif args.actions == "Linear":
             roadPrices = {r: roadPrices_funct[r](len(roadQueues[r])) for r in roadPrices_funct.keys()}
         roadPrices = {r: min(max(x, 1), 125) for r, x in roadPrices.items()}
+        roadPricesTracked = {r: roadPricesTracked[r] + [roadPrices[r]] for r in roadPricesTracked.keys()}
         # Add new vehicles from here
         num_vehicles_arrived = arrival_timestep_dict[time]
         # print(roadTravelTime, {r:len(x) for r,x in roadQueues.items()}, roadPrices)
@@ -250,6 +251,7 @@ def evaluate_solution(
                 std(profit),
                 ineq.gini(profit),
                 ineq.atkinson.index(profit, epsilon=0.5),
+                *[median(rpt) for r, rpt in roadPricesTracked.items()],
             ),
         )
     return {
@@ -273,7 +275,7 @@ def parse_args():
     parser.add_argument("--car_vot_lowerbound", type=float, help="The lower bound for the car VOT distribution", default=0.0)
     parser.add_argument("--car_vot_upperbound", type=float, help="The upper bound for the car VOT distribution", default=1.0)
     parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=1000)
-    parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=10)
+    parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=20)
     parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=True)
     parser.add_argument("--road_0_t0", type=int, help="Free flow travel time of road 0, default 15", default=15)
     parser.add_argument("--road_1_t0", type=int, help="Free flow travel time of road 1, default 30", default=30)
@@ -302,7 +304,7 @@ def run_exp(args):
         "hyperparameters",
         "|param|value|\n|-|-|\n%s"
         % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
+        )
 
     car_dist_arrival = generate_car_time_distribution(
         args.n_cars,
@@ -418,15 +420,30 @@ def run_exp(args):
     )
     if args.track:
         for name, mode in zip(['travel_time', 'social_cost', 'combined_cost', 'profit'], [tt_eval, sc_eval, cc_eval, pr_eval]):
-            writer.add_scalar(f"{name}/{name}_min", mode[0])
-            writer.add_scalar(f"{name}/{name}_q1", mode[1])
-            writer.add_scalar(f"{name}/{name}_mean", mode[2])
-            writer.add_scalar(f"{name}/{name}_median", mode[3])
-            writer.add_scalar(f"{name}/{name}_q3", mode[4])
-            writer.add_scalar(f"{name}/{name}_max", mode[5])
-            writer.add_scalar(f"{name}/{name}_std", mode[6])
-            writer.add_scalar(f"{name}/{name}_gini", mode[7])
-            writer.add_scalar(f"{name}/{name}_atkinson", mode[8])
+            # writer.add_scalar(f"{name}/{name}_min", mode[0])
+            # writer.add_scalar(f"{name}/{name}_q1", mode[1])
+            # writer.add_scalar(f"{name}/{name}_mean", mode[2])
+            # writer.add_scalar(f"{name}/{name}_median", mode[3])
+            # writer.add_scalar(f"{name}/{name}_q3", mode[4])
+            # writer.add_scalar(f"{name}/{name}_max", mode[5])
+            # writer.add_scalar(f"{name}/{name}_std", mode[6])
+            # writer.add_scalar(f"{name}/{name}_gini", mode[7])
+            # writer.add_scalar(f"{name}/{name}_atkinson", mode[8])
+            # if name == 'profit':
+            #     for r, rpt in enumerate(mode[9:]):
+            #         writer.add_scalar(f"road_{r}_price", rpt)
+            wandb.run.summary[f"{name}_min"] = mode[0]
+            wandb.run.summary[f"{name}_q1"] = mode[1]
+            wandb.run.summary[f"{name}_mean"] = mode[2]
+            wandb.run.summary[f"{name}_median"] = mode[3]
+            wandb.run.summary[f"{name}_q3"] = mode[4]
+            wandb.run.summary[f"{name}_max"] = mode[5]
+            wandb.run.summary[f"{name}_std"] = mode[6]
+            wandb.run.summary[f"{name}_gini"] = mode[7]
+            wandb.run.summary[f"{name}_atkinson"] = mode[8]
+            if name == 'profit':
+                for r, rpt in enumerate(mode[9:]):
+                    wandb.run.summary[f"road_{r}_price"] = rpt
 
 
 
