@@ -38,11 +38,11 @@ def parse_args():
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
-    parser.add_argument("--num-episodes", type=int, default=10000,
+    parser.add_argument("--num-episodes", type=int, default=20000,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
-    parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--random-cars", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
                         help="If toggled, num cars is ignored and we will sample a p_dist for number of cars at each epoch.")
     parser.add_argument("--network-size", type=int, choices=[1,2,3,5], default=3,
         help="the size of the network. 1: small, 2: medium, 3: large, 4: extra large, 5: joint AC")
@@ -328,7 +328,6 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("mps" if torch.backends.mps else "cpu")
 
-    num_agents = 2
     num_actions = 3
 
     road_vdfs = [
@@ -336,25 +335,26 @@ if __name__ == "__main__":
             volume_delay_function,
             0.656,
             4.8,
-            1e20,
+            20,
             15
         ),
         partial(
             volume_delay_function,
             0.656,
             4.8,
-            1e20,
+            20,
             30,
         ),
-        # partial(
-        #     volume_delay_function,
-        #     0.656,
-        #     4.8,
-        #     60,
-        #     20,
-        # ),
+        partial(
+            volume_delay_function,
+            0.656,
+            4.8,
+            20,
+            60,
+        ),
     ]
 
+    num_agents = len(road_vdfs)
     """ ENV SETUP """
     env = simulation_env(
         num_routes=num_agents,
