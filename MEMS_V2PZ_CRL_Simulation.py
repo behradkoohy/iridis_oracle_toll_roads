@@ -34,7 +34,7 @@ def parse_args():
     # Run Settings
     parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
         help="the name of this experiment")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
