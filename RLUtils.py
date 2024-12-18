@@ -1,3 +1,5 @@
+import numpy as np
+
 from TimeOnlyUtils import get_cars_leaving_during_trip, QueueRanges
 
 def get_sum_of_dict(cars_leaving_dict):
@@ -28,6 +30,7 @@ def quick_get_new_travel_times(
         cars_leaving_during_trip, queue_manager = quick_get_cars_leaving_during_trip(
             time_out_car, road, time, max_travel_eta, queue_manager
         )
+        cars_leaving_during_trip = {t: c for t, c in cars_leaving_during_trip.items() if c > 0}
 
         # cumsum_base = 0
         # cars_leaving_cumsum = [
@@ -91,4 +94,66 @@ def quick_get_cars_leaving_during_trip(time_out_car, road, time, max_travel_eta,
         queue.starts[road] = new_lowerbound
         queue.stops[road] = new_upperbound
         return queue.queues[road], queue
+"""
+def quicker_get_new_travel_times(
+    roadQueues, roadVDFS, time, arrived_vehicles, time_out_car, queue_manager, vdf_cache
+):
+    new_travel_times = {}
+    new_road_queues = {}
+    for road in roadQueues.keys():
+        arrived_vehicles = arrived_vehicles + [
+            car for car in roadQueues[road] if car[3] <= time
+        ]
 
+        new_road_queues[road] = [car for car in roadQueues[road] if car[3] > time]
+        road_vdf = roadVDFS[road]
+        best_known_travel_time = road_vdf(len(new_road_queues[road]))
+        max_travel_eta = time + best_known_travel_time
+        cars_on_road = len(new_road_queues[road])
+        cars_leaving_during_trip, queue_manager = quick_get_cars_leaving_during_trip(
+            time_out_car, road, time, max_travel_eta, queue_manager
+        )
+        cars_leaving_during_trip = {t: c for t, c in cars_leaving_during_trip.items() if c > 0}
+        cars_leaving_cumsum = np.cumsum(list(cars_leaving_during_trip.values())).tolist()
+        cars_leaving_during_trip_sum = dict(
+            zip(
+                cars_leaving_during_trip.keys(),
+                cars_leaving_cumsum
+            )
+        )
+        cars_leaving_during_trip_sum[time] = 0
+
+        left_look = 0
+        check_time_keys = list(cars_leaving_during_trip_sum.keys())
+        right_look = len(check_time_keys) - 1
+
+        current_best = max_travel_eta - time
+        road_vdf_cache = vdf_cache[road]
+
+        while left_look < right_look:
+            ti = check_time_keys[left_look]
+            cars_out = cars_leaving_during_trip_sum[ti]
+
+            # vdf_time = road_vdf_cache.get(cars_on_road - cars_out, (road_vdf[cars_on_road - cars_out]))
+            if not road_vdf_cache.get(cars_on_road - cars_out, False):
+                vdf_time = road_vdf(cars_on_road - cars_out)
+                vdf_cache[road][cars_on_road - cars_out] = vdf_time
+            else:
+                vdf_time = road_vdf_cache.get(cars_on_road - cars_out)
+
+            new_tt = ti + vdf_time - time
+            current_best = min(new_tt, current_best)
+
+            while (time + current_best < check_time_keys[right_look]):
+                right_look -= 1
+
+            left_look += 1
+
+        new_travel_times[road] = current_best
+
+    # if time == 400 or time == 999:
+        # breakpoint()
+
+    # print(time, new_travel_times, {x:len(y) for x,y in new_road_queues.items()})
+    return new_travel_times, new_road_queues, arrived_vehicles, queue_manager, vdf_cache
+"""

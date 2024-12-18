@@ -16,6 +16,7 @@ import numpy.random as nprand
 # from wandb import agent
 
 from RLUtils import quick_get_new_travel_times
+# from RLUtils import quicker_get_new_travel_times as quick_get_new_travel_times
 from TimeOnlyUtils import QueueRanges, volume_delay_function
 
 n_cars = 850
@@ -148,48 +149,6 @@ class simulation_env(ParallelEnv):
         self.agent_maxes = {agent: None for agent in range(self.num_routes)}
         self.agent_mins = {agent: None for agent in range(self.num_routes)}
         self.agent_prices = {agent: None for agent in range(self.num_routes)}
-    #
-    # def update_rolling_norms(self, agent, new_value):
-    #     # n_old = len(self.agent_reward_norms[agent]) # the lowest this can be is 0
-    #     # if n_old == 0:
-    #     n_old = (
-    #         self.agent_reward_norms_lens[agent]
-    #         if self.agent_reward_norms_lens[agent] is not None
-    #         else 0
-    #     )
-    #     if (
-    #         self.agent_reward_norms_mean[agent] is None
-    #         or self.agent_reward_norms_vars[agent] is None
-    #     ):
-    #         # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
-    #         self.agent_reward_norms_mean[agent] = new_value
-    #         self.agent_reward_norms_vars[agent] = 0
-    #         self.agent_reward_norms_lens[agent] = 1
-    #         return (
-    #             self.agent_reward_norms_mean[agent],
-    #             self.agent_reward_norms_vars[agent],
-    #         )
-    #     else:
-    #         mean = self.agent_reward_norms_mean[agent]
-    #         n = self.agent_reward_norms_lens[agent]
-    #         var = self.agent_reward_norms_vars[agent]
-    #
-    #         new_mean = mean + ((new_value - mean) / (n + 1))
-    #         new_var = ((n / (n + 1)) * var) + (
-    #             (new_value - mean) * ((new_value - new_mean) / (n + 1))
-    #         )
-    #
-    #         # new_mean = (((self.agent_reward_norms_mean[agent] * n_old) + new_value)/(n_old + 1))
-    #         # new_var = (((n_old-1)/(n_old))*self.agent_reward_norms_vars[agent]) + ((new_value - self.agent_reward_norms_mean[agent]) ** 2)/(n_old+1)
-    #         # self.agent_reward_norms[agent] = self.agent_reward_norms[agent] + [new_value]
-    #
-    #         self.agent_reward_norms_mean[agent] = new_mean
-    #         self.agent_reward_norms_vars[agent] = new_var
-    #         self.agent_reward_norms_lens[agent] += 1
-    #         return (
-    #             self.agent_reward_norms_mean[agent],
-    #             self.agent_reward_norms_vars[agent],
-    #         )
 
     def quantalify(self, r, rest, lambd=0.9):
         # breakpoint()

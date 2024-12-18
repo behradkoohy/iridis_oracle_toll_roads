@@ -22,7 +22,7 @@ from torch.distributions.categorical import Categorical
 import os
 import scipy.stats
 from welford import Welford
-from ParallelPZEnv import n_timesteps, n_cars
+from MEParallelPZEnv import n_timesteps, n_cars
 import inequalipy as ineq
 
 from TimeOnlyUtils import volume_delay_function
@@ -34,10 +34,11 @@ def parse_args():
     # Run Settings
     parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
         help="the name of this experiment")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
+    # parser.add_argument("--num-episodes", type=int, default=20000,
     parser.add_argument("--num-episodes", type=int, default=20000,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
@@ -112,7 +113,7 @@ def parse_args():
         help="coefficient of the value function")
     parser.add_argument("--max-grad-norm", type=float, default=0.1,
         help="the maximum norm for the gradient clipping")
-    parser.add_argument("--eps_per_update", type=int, default=64, help="Number of episodes per update. If 1, same behaviour as before.")
+    parser.add_argument("--eps_per_update", type=int, default=8, help="Number of episodes per update. If 1, same behaviour as before.")
     # parser.add_argument("--eps_per_update", type=int, default=8, help="Number of episodes per update. If 1, same behaviour as before.")
     args = parser.parse_args()
     # args.num_envs = 2
@@ -345,13 +346,13 @@ if __name__ == "__main__":
             20,
             30,
         ),
-        partial(
-            volume_delay_function,
-            0.656,
-            4.8,
-            20,
-            60,
-        ),
+        # partial(
+        #     volume_delay_function,
+        #     0.656,
+        #     4.8,
+        #     20,
+        #     60,
+        # ),
     ]
 
     num_agents = len(road_vdfs)
@@ -444,7 +445,7 @@ if __name__ == "__main__":
 
     """ TRAINING LOGIC """
     # train for n number of episodes
-    pbar = tqdm(range(args.num_episodes))
+    pbar = tqdm(range(args.num_episodes), position=0, leave=False, colour='green')
     global_step = 0
     while completed_eps < args.num_episodes:
         end_step = 0
@@ -462,7 +463,8 @@ if __name__ == "__main__":
         batch_n_cars = []
 
         # collect number of episodes
-        for episode in range(args.eps_per_update):
+        for episode in trange(args.eps_per_update, position=1, leave=False, colour='red'):
+            # print(episode)
             with torch.no_grad():
                 next_obs, info = env.reset(seed=None, random_cars=args.random_cars)
                 total_episodic_return = 0
