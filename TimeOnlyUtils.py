@@ -32,7 +32,7 @@ def volume_delay_function(a, b, c, t0, v):
     return t0 * (1 + (a * ((v / c) ** b)))
 
 class QueueRanges:
-    def __init__(self, num_routes):
+    def __init__(self, num_routes=2):
         self.num_routes = num_routes
         # self.starts = {0:0, 1:0}
         # self.stops = {0:0, 1:0}
