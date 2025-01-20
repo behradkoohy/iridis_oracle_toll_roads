@@ -12,7 +12,7 @@ def get_leaving_cars_sum(cars_leaving_dict, cars_leaving_sum, time):
         for ti, cars in zip(cars_leaving_dict.keys(), cars_leaving_sum)
     }
     return cars_leaving_during_trip_sum
-
+"""
 def quick_get_new_travel_times(
     roadQueues, roadVDFS, time, arrived_vehicles, time_out_car, queue_manager, vdf_cache
 ):
@@ -47,13 +47,14 @@ def quick_get_new_travel_times(
         cars_leaving_during_trip_new_tt = {}
         for ti, cars_out in cars_leaving_during_trip_sum.items():
             # vdf_time = vdf_cache[road].get(cars_on_road - cars_out, None)
-            vdf_time = None
-            if (cars_on_road - cars_out) in vdf_cache[road]:
-            # if vdf_time is None:
-                vdf_time = vdf_cache[road][cars_on_road - cars_out]
-                vdf_cache[road][cars_on_road - cars_out] = vdf_time
-            else:
-                vdf_time = road_vdf(cars_on_road - cars_out)
+            # vdf_time = None
+            # if (cars_on_road - cars_out) in vdf_cache[road]:
+            # # if vdf_time is None:
+            #     vdf_time = vdf_cache[road][cars_on_road - cars_out]
+            #     vdf_cache[road][cars_on_road - cars_out] = vdf_time
+            # else:
+            #     vdf_time = road_vdf(cars_on_road - cars_out)
+            vdf_time = road_vdf(cars_on_road - cars_out)
             cars_leaving_during_trip_new_tt[ti] = ti + vdf_time - time
         # cars_leaving_during_trip_new_tt = {
         #     ti: ti + road_vdf(cars_on_road - cars_out) - time
@@ -61,7 +62,64 @@ def quick_get_new_travel_times(
         # }
         best_time_out = min(cars_leaving_during_trip_new_tt.values())
         new_travel_times[road] = best_time_out
+        # breakpoint()
+        # print(time, vdf_cache)
     return new_travel_times, new_road_queues, arrived_vehicles, queue_manager, vdf_cache
+"""
+
+
+def generate_arrvied_queues(arrived_vehicles, roadQueues, road, time):
+    return arrived_vehicles + [
+        car for car in roadQueues[road] if car[3] <= time
+    ]
+
+
+def generate_new_queues(arrived_vehicles, roadQueues, road, time):
+    return [car for car in roadQueues[road] if car[3] > time]
+
+
+def calc_cars_leaving_during_trip(cars_leaving_during_trip):
+    return {t: c for t, c in cars_leaving_during_trip.items() if c > 0}
+
+
+def quick_get_new_travel_times(
+        roadQueues, roadVDFS, time, arrived_vehicles, time_out_car, queue_manager, vdf_cache
+):
+    new_travel_times = {}
+    new_road_queues = {}
+    for road in roadQueues.keys():
+
+        arrived_vehicles = generate_arrvied_queues(arrived_vehicles, roadQueues, road, time)
+
+        new_road_queues[road] = generate_new_queues(arrived_vehicles, roadQueues, road, time)
+
+        road_vdf = roadVDFS[road]
+        best_known_travel_time = road_vdf(len(new_road_queues[road]))
+
+        max_travel_eta = time + best_known_travel_time
+        cars_on_road = len(new_road_queues[road])
+
+        cars_leaving_during_trip, queue_manager = quick_get_cars_leaving_during_trip(
+            time_out_car, road, time, max_travel_eta, queue_manager
+        )
+
+        cars_leaving_during_trip = calc_cars_leaving_during_trip(cars_leaving_during_trip)
+
+        cars_leaving_cumsum = get_sum_of_dict(cars_leaving_during_trip)
+
+        cars_leaving_during_trip_sum = get_leaving_cars_sum(cars_leaving_during_trip, cars_leaving_cumsum, time)
+
+        cars_leaving_during_trip_new_tt = {}
+
+        for ti, cars_out in cars_leaving_during_trip_sum.items():
+            vdf_time = road_vdf(cars_on_road - cars_out)
+            cars_leaving_during_trip_new_tt[ti] = ti + vdf_time - time
+
+        best_time_out = min(cars_leaving_during_trip_new_tt.values())
+        new_travel_times[road] = best_time_out
+
+    return new_travel_times, new_road_queues, arrived_vehicles, queue_manager
+
 
 def quick_get_cars_leaving_during_trip(time_out_car, road, time, max_travel_eta, queue):
     if queue.queues[road] == {}:

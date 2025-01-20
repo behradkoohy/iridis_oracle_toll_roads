@@ -27,6 +27,8 @@ import inequalipy as ineq
 
 from TimeOnlyUtils import volume_delay_function
 
+import cProfile, pstats, io
+
 
 def parse_args():
     # fmt: off
@@ -34,12 +36,12 @@ def parse_args():
     # Run Settings
     parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
         help="the name of this experiment")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Algorithm Run Settings
     # parser.add_argument("--num-episodes", type=int, default=20000,
-    parser.add_argument("--num-episodes", type=int, default=20000,
+    parser.add_argument("--num-episodes", type=int, default=800,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
@@ -300,12 +302,15 @@ def get_gradient_norm(model):
 
 
 if __name__ == "__main__":
+    # pr = cProfile.Profile()
+    # pr.enable()
     args = parse_args()
     print("----------- RUN DETAILS -----------")
     print("N CARS:", args.num_cars if not args.random_cars else "Random")
     print("N TIMESTEPS", n_timesteps)
     print("-----------      END     -----------")
     run_name = f"MMRP_Online__5EpisodesPerRollOut:MinimiseTT__{n_timesteps}__{n_cars}__{int(time.time())}"
+    
     if args.track:
         import wandb
 
@@ -318,12 +323,12 @@ if __name__ == "__main__":
             monitor_gym=True,
             save_code=True,
         )
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s"
-        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
+        writer = SummaryWriter(f"runs/{run_name}")
+        writer.add_text(
+            "hyperparameters",
+            "|param|value|\n|-|-|\n%s"
+            % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+        )
 
     """ALGO PARAMS"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -336,15 +341,15 @@ if __name__ == "__main__":
             volume_delay_function,
             0.656,
             4.8,
-            20,
-            15
+            15,
+            20
         ),
         partial(
             volume_delay_function,
             0.656,
             4.8,
-            20,
             30,
+            20,
         ),
         # partial(
         #     volume_delay_function,
@@ -676,39 +681,40 @@ if __name__ == "__main__":
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         # writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
-        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-        writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
-        writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
-        writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
-        writer.add_scalar("losses/clipfrac", np.mean(clip_fracs), global_step)
-        writer.add_scalar("losses/explained_variance", explained_var, global_step)
-        for agt_tr in range(num_agents):
-            writer.add_scalar(f"losses/agent_{agt_tr}_advantage", rb_advantages[:, agt_tr].mean().item(), global_step)
-            writer.add_scalar(f"losses/agent_{agt_tr}_logprobs", rb_logprobs[:, agt_tr].max().item(), global_step)
-            writer.add_scalar(f"losses/agent_{agt_tr}_returns_means", rb_returns[:, agt_tr].mean().item(), global_step)
-            writer.add_scalar(f"losses/agent_{agt_tr}_returns_vars", rb_returns[:, agt_tr].var().item(), global_step)
-            writer.add_scalar(f"road/road_{agt_tr}_profit", env.road_profits[agt_tr], global_step)
-            writer.add_scalar(f"road/road_{agt_tr}_price_range", env.agent_price_range[agt_tr], global_step)
-            writer.add_scalar(f"road/road_{agt_tr}_max_price", env.agent_maxes[agt_tr], global_step)
-            writer.add_scalar(f"road/road_{agt_tr}_min_price", env.agent_mins[agt_tr], global_step)
-            writer.add_scalar(f"road/road_{agt_tr}_med_price", np.median(env.agent_prices[agt_tr]), global_step)
-        for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
-            grad_norm = get_gradient_norm(mdl)
-            # print(f"{name} Gradient Norm: {grad_norm}")
-            writer.add_scalar(f"losses/{name}_grad_norm", grad_norm, global_step)
+        if args.track:
+            writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
+            writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
+            writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+            writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
+            writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
+            writer.add_scalar("losses/clipfrac", np.mean(clip_fracs), global_step)
+            writer.add_scalar("losses/explained_variance", explained_var, global_step)
+            for agt_tr in range(num_agents):
+                writer.add_scalar(f"losses/agent_{agt_tr}_advantage", rb_advantages[:, agt_tr].mean().item(), global_step)
+                writer.add_scalar(f"losses/agent_{agt_tr}_logprobs", rb_logprobs[:, agt_tr].max().item(), global_step)
+                writer.add_scalar(f"losses/agent_{agt_tr}_returns_means", rb_returns[:, agt_tr].mean().item(), global_step)
+                writer.add_scalar(f"losses/agent_{agt_tr}_returns_vars", rb_returns[:, agt_tr].var().item(), global_step)
+                writer.add_scalar(f"road/road_{agt_tr}_profit", env.road_profits[agt_tr], global_step)
+                writer.add_scalar(f"road/road_{agt_tr}_price_range", env.agent_price_range[agt_tr], global_step)
+                writer.add_scalar(f"road/road_{agt_tr}_max_price", env.agent_maxes[agt_tr], global_step)
+                writer.add_scalar(f"road/road_{agt_tr}_min_price", env.agent_mins[agt_tr], global_step)
+                writer.add_scalar(f"road/road_{agt_tr}_med_price", np.median(env.agent_prices[agt_tr]), global_step)
+            for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
+                grad_norm = get_gradient_norm(mdl)
+                # print(f"{name} Gradient Norm: {grad_norm}")
+                writer.add_scalar(f"losses/{name}_grad_norm", grad_norm, global_step)
 
-        writer.add_scalar(
-            "losses/sum_total_episodic_return",
-            np.sum(total_episodic_return),
-            global_step,
-        )
-        writer.add_scalar(
-            "charts/SPS", int(global_step / (time.time() - start_time)), global_step
-        )
-        writer.add_scalar("eval/travel_time", np.mean(env.travel_time), global_step)
-        writer.add_scalar("eval/social_welfare", np.mean(env.time_cost_burden), global_step)
-        writer.add_scalar("eval/combined_cost", np.mean(env.combined_cost), global_step)
+            writer.add_scalar(
+                "losses/sum_total_episodic_return",
+                np.sum(total_episodic_return),
+                global_step,
+            )
+            writer.add_scalar(
+                "charts/SPS", int(global_step / (time.time() - start_time)), global_step
+            )
+            writer.add_scalar("eval/travel_time", np.mean(env.travel_time), global_step)
+            writer.add_scalar("eval/social_welfare", np.mean(env.time_cost_burden), global_step)
+            writer.add_scalar("eval/combined_cost", np.mean(env.combined_cost), global_step)
 
         # writer.add_scalar("road/road_0_action_entropy", agent_entropy[0], global_step)
         # writer.add_scalar("road/road_1_action_entropy", agent_entropy[1], global_step)
@@ -728,6 +734,14 @@ if __name__ == "__main__":
     # exit()
     # if not args.track:
     #     exit()
+
+    # pr.disable()
+    # s = io.StringIO()
+    # sortby = 'cumulative'
+    # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    # ps.print_stats()
+    # print(s.getvalue())
+    # breakpoint()
 
     with (torch.no_grad()):
         if args.random_cars:
@@ -809,6 +823,39 @@ if __name__ == "__main__":
                     wandb.run.summary[f"{eval_n_cars}/atki_indx_tt"] = ineq.atkinson.index(trained_agent_means_tt,
                                                                             epsilon=0.5) - ineq.atkinson.index(
                         random_agent_means_tt, epsilon=0.5)
+                else:
+                    # Trained Agent Metrics
+                    print(f"{eval_n_cars}/travel_time: {np.mean(trained_agent_means_tt)}")
+                    print(f"{eval_n_cars}/social_cost: {np.mean(trained_agent_means_sc)}")
+                    print(f"{eval_n_cars}/combined_cost: {np.mean(trained_agent_means_cc)}")
+                    print(f"{eval_n_cars}/profit: {np.mean(trained_agent_means_pr)}")
+                    print(f"{eval_n_cars}/gini_coef_tt: {ineq.gini(trained_agent_means_tt)}")
+                    print(f"{eval_n_cars}/atki_indx_tt: {ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)}")
+
+                    # Random Agent Metrics
+                    print(f"{eval_n_cars}/rng_travel_time: {np.mean(random_agent_means_tt)}")
+                    print(f"{eval_n_cars}/rng_social_cost: {np.mean(random_agent_means_sc)}")
+                    print(f"{eval_n_cars}/rng_combined_cost: {np.mean(random_agent_means_cc)}")
+                    print(f"{eval_n_cars}/rng_profit: {np.mean(random_agent_means_pr)}")
+
+                    # Median Price for each route
+                    for agt in range(env.num_routes):
+                        route_med_price = np.mean([x[agt] for x in trained_agent_median_price])
+                        print(f"{eval_n_cars}/r{agt}_med_price: {route_med_price}")
+
+                    # Performance Gaps (Trained vs. Random Agent)
+                    tt_gap = np.mean(trained_agent_means_tt) - np.mean(random_agent_means_tt)
+                    sc_gap = np.mean(trained_agent_means_sc) - np.mean(random_agent_means_sc)
+                    cc_gap = np.mean(trained_agent_means_cc) - np.mean(random_agent_means_cc)
+                    gini_gap = ineq.gini(trained_agent_means_tt) - ineq.gini(random_agent_means_tt)
+                    atki_gap = (ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5) -
+                                ineq.atkinson.index(random_agent_means_tt, epsilon=0.5))
+
+                    print(f"{eval_n_cars}/tt_performance_gap: {tt_gap}")
+                    print(f"{eval_n_cars}/sc_performance_gap: {sc_gap}")
+                    print(f"{eval_n_cars}/cc_performance_gap: {cc_gap}")
+                    print(f"{eval_n_cars}/gini_perf_gap: {gini_gap}")
+                    print(f"{eval_n_cars}/atki_indx_tt: {atki_gap}")
 
         else:
             trained_agent_means_tt = []

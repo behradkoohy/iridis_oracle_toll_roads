@@ -1,4 +1,6 @@
 import argparse
+from queue import PriorityQueue
+
 import numpy.random as nprand
 import numpy as np
 from numpy import mean, quantile, median, std
@@ -14,7 +16,8 @@ from TrackedGlobalBestPSO import GlobalBestPSO
 from torch.utils.tensorboard import SummaryWriter
 
 from DiscretePySwarms import IntOptimizerPSO
-from RLUtils import quick_get_new_travel_times
+# from RLUtils import quick_get_new_travel_times
+from TravelTimeRLUtils import pq_get_new_travel_times
 from TimeOnlyUtils import volume_delay_function, QueueRanges
 from TimestepPriceUtils import generate_utility_funct, quantal_decision
 
@@ -132,6 +135,7 @@ def evaluate_solution(
         roadPrices = {r: 0 for r in roadVDFS.keys()}
 
     time_out_car = {r: defaultdict(int) for r in roadVDFS.keys()}
+    time_out_pq = {r: PriorityQueue() for r in roadVDFS.keys()}
 
     arrived_vehicles = []
     time = 0
@@ -141,9 +145,16 @@ def evaluate_solution(
 
     while not time >= timesteps + 1:
         # get the new vehicles at this timestep
-        roadTravelTime, roadQueues, arrived_vehicles, queue_ranges, vdf_cache = quick_get_new_travel_times(
-            roadQueues, roadVDFS, time, arrived_vehicles, time_out_car, queue_ranges, vdf_cache
+        # roadTravelTime, roadQueues, arrived_vehicles, queue_ranges, vdf_cache = quick_get_new_travel_times(
+        #     roadQueues, roadVDFS, time, arrived_vehicles, time_out_car, queue_ranges, vdf_cache
+        # )
+        roadTravelTime, time_out_pq, arrived_vehicles = pq_get_new_travel_times(
+            time_out_pq,
+            roadVDFS,
+            time,
+            arrived_vehicles,
         )
+        roadQueues = {r: [i[1] for i in list(pq.queue)] for r, pq in time_out_pq.items()}
 
         # we pass in the actions for this timestep and the road prices, and we get back the new road prices.
         if args.actions == 'Free':
@@ -183,22 +194,32 @@ def evaluate_solution(
         """
         # add vehicles to the new queue
         for decision, vot in decisions:
-            roadQueues[decision] = roadQueues[decision] + [
-                (
+            vehicle_tuple = (
                     decision,
                     time,
                     vot,
                     time + roadTravelTime[decision],
                     roadPrices[decision],
                 )
+            roadQueues[decision] = roadQueues[decision] + [
+                vehicle_tuple
             ]
             time_out_car[decision][round(time + roadTravelTime[decision])] = (
                     time_out_car[decision][round(time + roadTravelTime[decision])] + 1
             )
+            time_out_pq[decision].put((round(time + roadTravelTime[decision]), vehicle_tuple))
+
             if seq_decisions:
-                roadTravelTime, roadQueues, arrived_vehicles, queue_ranges, vdf_cache = quick_get_new_travel_times(
-                    roadQueues, roadVDFS, time, arrived_vehicles, time_out_car, queue_ranges, vdf_cache
+                roadTravelTime, time_out_pq, arrived_vehicles = pq_get_new_travel_times(
+                    time_out_pq,
+                    roadVDFS,
+                    time,
+                    arrived_vehicles,
                 )
+                roadQueues = {r: [i[1] for i in list(pq.queue)] for r, pq in time_out_pq.items()}
+                # roadTravelTime, roadQueues, arrived_vehicles, queue_ranges, vdf_cache = quick_get_new_travel_times(
+                #     roadQueues, roadVDFS, time, arrived_vehicles, time_out_car, queue_ranges, vdf_cache
+                # )
         time += 1
     for road, queue in roadQueues.items():
         arrived_vehicles = arrived_vehicles + [car for car in roadQueues[road]]
@@ -276,11 +297,11 @@ def parse_args():
     parser.add_argument("--car_vot_upperbound", type=float, help="The upper bound for the car VOT distribution", default=1.0)
     parser.add_argument("--n_iterations", type=int, help="The number of iterations for the PSO algorithm", default=1000)
     parser.add_argument("--n_particles", type=int, help="The number of particles in the PSO algorithm", default=20)
-    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=True)
-    parser.add_argument("--road_0_t0", type=int, help="Free flow travel time of road 0, default 15", default=15)
-    parser.add_argument("--road_1_t0", type=int, help="Free flow travel time of road 1, default 30", default=30)
-    parser.add_argument("--road_0_cap", type=int, help="Free flow capacity of road 0, default 20", default=20)
-    parser.add_argument("--road_1_cap", type=int, help="Free flow capacity of road 1, default 20", default=20)
+    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=False)
+    parser.add_argument("--road_0_t0", type=int, help="Free flow travel time of road 0, default 15", default=20)
+    parser.add_argument("--road_1_t0", type=int, help="Free flow travel time of road 1, default 30", default=20)
+    parser.add_argument("--road_0_cap", type=int, help="Free flow capacity of road 0, default 20", default=15)
+    parser.add_argument("--road_1_cap", type=int, help="Free flow capacity of road 1, default 20", default=30)
     # parser.add_argument("--multithread", type=bool, help="Track the experiment with Weights and Biases", default=True)
     return parser.parse_args()
     # fmt: on

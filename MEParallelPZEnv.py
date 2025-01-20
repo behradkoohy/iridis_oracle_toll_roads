@@ -1,4 +1,5 @@
 import math
+from queue import PriorityQueue
 
 from pettingzoo import ParallelEnv
 import functools
@@ -18,6 +19,7 @@ import numpy.random as nprand
 from RLUtils import quick_get_new_travel_times
 # from RLUtils import quicker_get_new_travel_times as quick_get_new_travel_times
 from TimeOnlyUtils import QueueRanges, volume_delay_function
+from TravelTimeRLUtils import pq_get_new_travel_times
 
 n_cars = 850
 n_timesteps = 1000
@@ -347,6 +349,7 @@ class simulation_env(ParallelEnv):
         self.queues_manager.reset()
 
         self.time_out_car = {r: defaultdict(int) for r in self.roadVDFS.keys()}
+        self.time_out_pq = {r: PriorityQueue() for r in self.roadVDFS.keys()}
         self.arrived_vehicles = []
         self.vot_deque = deque(self.car_vot_arrival)
 
@@ -435,21 +438,30 @@ class simulation_env(ParallelEnv):
         # Here, we need to update the simulation and push forward with one timestep
         # Once we've updated all of that, we then update the rewards
         # first, we update the travel time, the queues and the arrived vehicles
-        (
-            self.roadTravelTime,
-            self.roadQueues,
-            self.arrived_vehicles,
-            self.queues_manager,
-            self.agent_vdf_cache,
-        ) = quick_get_new_travel_times(
-            self.roadQueues,
+        # (
+        #     self.roadTravelTime,
+        #     self.roadQueues,
+        #     self.arrived_vehicles,
+        #     self.queues_manager,
+        #     self.agent_vdf_cache,
+        # ) = quick_get_new_travel_times(
+        #     self.roadQueues,
+        #     self.roadVDFS,
+        #     self.time,
+        #     self.arrived_vehicles,
+        #     self.time_out_car,
+        #     self.queues_manager,
+        #     self.agent_vdf_cache,
+        # )
+
+        self.roadTravelTime, self.time_out_pq, self.arrived_vehicles = pq_get_new_travel_times(
+            self.time_out_pq,
             self.roadVDFS,
             self.time,
             self.arrived_vehicles,
-            self.time_out_car,
-            self.queues_manager,
-            self.agent_vdf_cache,
         )
+        self.roadQueues = {r: [i[1] for i in list(pq.queue)] for r, pq in self.time_out_pq.items()}
+        # print(self.time, self.roadTravelTime, {r: len(x) for r, x in self.roadQueues.items()})
         # next, we update the car arrivals
         num_vehicles_arrived = self.arrival_timestep_dict[self.time]
         cars_arrived_vot = [
@@ -478,14 +490,15 @@ class simulation_env(ParallelEnv):
         decisions = zip([d[0] for d in car_quantal_decision.values()], cars_arrived_vot)
         timestep_rewards = {agt: 0 for agt in self.roadVDFS.keys()}
         for decision, vot in decisions:
-            self.roadQueues[decision] = self.roadQueues[decision] + [
-                (
+            vehicle_tuple = (
                     decision,
                     self.time,
                     vot,
                     self.time + self.roadTravelTime[decision],
                     self.roadPrices[decision],
                 )
+            self.roadQueues[decision] = self.roadQueues[decision] + [
+                vehicle_tuple
             ]
 
             # Uncomment below for maximising profit
@@ -497,14 +510,15 @@ class simulation_env(ParallelEnv):
             if self.reward_fn == 'MinVehTravelTime':
                 timestep_rewards[decision] = timestep_rewards[decision] - (self.roadTravelTime[decision])
 
-            self.time_out_car[decision][
-                round(self.time + self.roadTravelTime[decision])
-            ] = (
-                self.time_out_car[decision][
-                    round(self.time + self.roadTravelTime[decision])
-                ]
-                + 1
-            )
+            # self.time_out_car[decision][
+            #     round(self.time + self.roadTravelTime[decision])
+            # ] = (
+            #     self.time_out_car[decision][
+            #         round(self.time + self.roadTravelTime[decision])
+            #     ]
+            #     + 1
+            # )
+            self.time_out_pq[decision].put((round(self.time + self.roadTravelTime[decision]), vehicle_tuple))
 
         # Uncomment below for minimising travel time
         # norm_rewards = {}
@@ -574,7 +588,7 @@ class simulation_env(ParallelEnv):
                 r: sum([x[4] for x in self.arrived_vehicles if x[0] == r])
                 for r in self.roadQueues.keys()
             }
-            # print("END OF SIM ARRIVED CARS", len(self.arrived_vehicles))
+            # print("END OF SIM ARRIVED CARS", len(self.arrived_vehicles), "VS", self.n_cars)
         return observations, rewards, terminations, truncations, infos
 
         # else:
