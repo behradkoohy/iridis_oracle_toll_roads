@@ -41,7 +41,7 @@ def parse_args():
 
     # Algorithm Run Settings
     # parser.add_argument("--num-episodes", type=int, default=20000,
-    parser.add_argument("--num-episodes", type=int, default=800,
+    parser.add_argument("--num-episodes", type=int, default=50,
         help="total episodes of the experiments")
     parser.add_argument("--num-cars", type=int, default=500, nargs="?", const=True,
                         help="number of cars in experiment")
@@ -336,28 +336,88 @@ if __name__ == "__main__":
 
     num_actions = 3
 
+    # road_vdfs = [
+    #     partial(
+    #         volume_delay_function,
+    #         0.656,
+    #         4.8,
+    #         15,
+    #         20
+    #     ),
+    #     partial(
+    #         volume_delay_function,
+    #         0.656,
+    #         4.8,
+    #         30,
+    #         20,
+    #     ),
+    #     # partial(
+    #     #     volume_delay_function,
+    #     #     0.656,
+    #     #     4.8,
+    #     #     20,
+    #     #     60,
+    #     # ),
+    # ]
+    # road_vdfs = [
+    #     partial(
+    #         volume_delay_function,
+    #         1,
+    #         2,
+    #         223,
+    #         25.38
+    #     ),
+    #     partial(
+    #         volume_delay_function,
+    #         1,
+    #         2,
+    #         309.8,
+    #         32.81,
+    #     ),
+    #     partial(
+    #         volume_delay_function,
+    #         1,
+    #         2,
+    #         276.9,
+    #         44.05,
+    #     ),
+    # ]
     road_vdfs = [
         partial(
             volume_delay_function,
-            0.656,
-            4.8,
-            15,
-            20
+            1,
+            2,
+            223,
+            25.38
         ),
         partial(
             volume_delay_function,
-            0.656,
-            4.8,
-            30,
-            20,
+            1,
+            2,
+            309.8,
+            32.81,
         ),
-        # partial(
-        #     volume_delay_function,
-        #     0.656,
-        #     4.8,
-        #     20,
-        #     60,
-        # ),
+        partial(
+            volume_delay_function,
+            1,
+            2,
+            276.9,
+            44.05,
+        ),
+        partial(
+            volume_delay_function,
+            1,
+            2,
+            314.30,
+            40.83,
+        ),
+        partial(
+            volume_delay_function,
+            1,
+            2,
+            314.30,
+            19.76,
+        ),
     ]
 
     num_agents = len(road_vdfs)
@@ -746,7 +806,8 @@ if __name__ == "__main__":
     with (torch.no_grad()):
         if args.random_cars:
             print('evaluating')
-            for eval_n_cars in [500, 600, 650, 700, 750, 800, 850, 900, 1000]:
+            # for eval_n_cars in [500, 600, 650, 700, 750, 800, 850, 900, 1000]:
+            for eval_n_cars in range(5000, 15001, 1000):
                 print(eval_n_cars)
                 # trained agent performance
                 trained_agent_means_tt = []
@@ -754,12 +815,15 @@ if __name__ == "__main__":
                 trained_agent_means_cc = []
                 trained_agent_means_pr = []
                 trained_agent_median_price = []
+                trained_agent_means_pr_avg = []
                 # random agent performance
                 random_agent_means_tt = []
                 random_agent_means_sc = []
                 random_agent_means_cc = []
                 random_agent_means_pr = []
                 random_agent_median_price = []
+                random_agent_means_pr_avg = []
+
                 for episode in range(50):
                     # trained agent on seed/n_cars
                     # obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars, set_cars=eval_n_cars)
@@ -778,7 +842,9 @@ if __name__ == "__main__":
                     trained_agent_means_tt.append(np.mean(env.travel_time))
                     trained_agent_means_sc.append(np.mean(env.time_cost_burden))
                     trained_agent_means_cc.append(np.mean(env.combined_cost))
-                    trained_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
+                    trained_agent_means_pr.append(sum(list(env.road_profits.values())))
+                    # trained_agent_means_pr_avg.append(np.mean(list(env.road_profits.values())))
+                    trained_agent_means_pr_avg = trained_agent_means_pr_avg + list(env.road_profits.values())
                     trained_agent_median_price.append([np.median(agt_price) for agt_price in env.agent_prices.values()])
                     # run random agent on the env
                     obs, infos = env.reset(seed=None, set_np_seed=episode, random_cars=args.random_cars, set_cars=eval_n_cars)
@@ -792,7 +858,10 @@ if __name__ == "__main__":
                     random_agent_means_tt.append(np.mean(env.travel_time))
                     random_agent_means_sc.append(np.mean(env.time_cost_burden))
                     random_agent_means_cc.append(np.mean(env.combined_cost))
-                    random_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
+                    # random_agent_means_pr.append(env.road_profits[0] + env.road_profits[1])
+                    random_agent_means_pr.append(sum(list(env.road_profits.values())))
+                    # random_agent_means_pr_avg.append(np.mean(list(env.road_profits.values())))
+                    random_agent_means_pr_avg = random_agent_means_pr_avg + list(env.road_profits.values())
                     random_agent_median_price.append([np.median(agt_price) for agt_price in env.agent_prices.values()])
                 if args.track:
                     wandb.run.summary[f"{eval_n_cars}/travel_time"] = np.mean(trained_agent_means_tt)
@@ -829,6 +898,7 @@ if __name__ == "__main__":
                     print(f"{eval_n_cars}/social_cost: {np.mean(trained_agent_means_sc)}")
                     print(f"{eval_n_cars}/combined_cost: {np.mean(trained_agent_means_cc)}")
                     print(f"{eval_n_cars}/profit: {np.mean(trained_agent_means_pr)}")
+                    print(f"{eval_n_cars}/profit_mean: {np.mean(trained_agent_means_pr_avg)}")
                     print(f"{eval_n_cars}/gini_coef_tt: {ineq.gini(trained_agent_means_tt)}")
                     print(f"{eval_n_cars}/atki_indx_tt: {ineq.atkinson.index(trained_agent_means_tt, epsilon=0.5)}")
 
@@ -837,6 +907,7 @@ if __name__ == "__main__":
                     print(f"{eval_n_cars}/rng_social_cost: {np.mean(random_agent_means_sc)}")
                     print(f"{eval_n_cars}/rng_combined_cost: {np.mean(random_agent_means_cc)}")
                     print(f"{eval_n_cars}/rng_profit: {np.mean(random_agent_means_pr)}")
+                    print(f"{eval_n_cars}/rng_profit_mean: {np.mean(random_agent_means_pr_avg)}")
 
                     # Median Price for each route
                     for agt in range(env.num_routes):

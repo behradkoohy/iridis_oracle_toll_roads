@@ -289,7 +289,7 @@ class simulation_env(ParallelEnv):
         if set_cars is not None:
             self.n_cars = set_cars
         elif random_cars:
-            self.n_cars = randint(500, 1000)
+            self.n_cars = randint(5000, 15000)
 
         self.car_dist_arrival = self.generate_car_time_distribution(
             timeseed=set_np_seed
