@@ -121,7 +121,7 @@ class simulation_env(ParallelEnv):
             ),
         ]
 
-        self.queues_manager = QueueRanges()
+        self.queues_manager = QueueRanges(2)
         #
         # self.agent_reward_norms_lens = {agent: None for agent in range(self.num_routes)}
         # self.agent_reward_norms_mean = {agent: None for agent in range(self.num_routes)}
