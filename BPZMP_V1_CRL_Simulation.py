@@ -41,11 +41,11 @@ def parse_args():
                         help="fix initial road costs or randomize them")
     parser.add_argument("--lambd", type=float, default=0.9,
                         help="lambda paramater for QRE")
-    parser.add_argument("--tntp_path", type=str, default="/Users/behradkoohy/Development/TransportationNetworks/SiouxFalls/SiouxFalls",
+    parser.add_argument("--tntp_path", type=str, default="C:\\Users\\Behrad\\PycharmProjects\\iridis_oracle_toll_roads\\TransportationNetworks-master\\SiouxFalls\\SiouxFalls",
                         help="Path to TNTP files")
 
     # Algorithm Parameters
-    parser.add_argument("--num-episodes", type=int, default=100,
+    parser.add_argument("--num-episodes", type=int, default=1000,
                         help="total episodes of the experiments")
     parser.add_argument("--num-steps", type=int, default=5500,
                         help="the number of steps to run in each environment per policy rollout")
@@ -87,6 +87,9 @@ def parse_args():
     args.total_timesteps = args.timesteps * args.num_episodes
     # fmt: on
     return args
+
+args = parse_args()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class CategoricalMasked(Categorical):
     def __init__(self, probs=None, logits=None, validate_args=None, masks=[]):
@@ -159,67 +162,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
-def run_episode(env_funct):
-    with torch.no_grad():
-        next_obs, info = env_funct.reset()
-        total_episodic_return = 0
 
-        ep_step = 0
-        ep_obs = []
-        ep_rewards = []
-        ep_terms = []
-        ep_actions = []
-        ep_logprobs = []
-        ep_values = []
-        ep_action_masks = []
-
-        while env_funct.agents:
-            # rb_action_masks[batch_step] = torch.tensor([False, False, False])
-            # global_step += 1
-            obs = batchify_obs(next_obs, device)
-            if args.action_masks:
-                s_masks = torch.tensor([info[agt]['action_mask'] for agt in env_funct.agents])
-                actions, logprobs, _, values = agent.get_action_and_value(obs, action_masks=s_masks)
-            else:
-                actions, logprobs, _, values = agent.get_action_and_value(obs)
-
-            # execute the environment and log data
-            next_obs, rewards, terms, truncs, infos = env_funct.step(
-                unbatchify(actions, env_funct)
-            )
-
-            ep_obs.append(obs)
-            ep_rewards.append(batchify(rewards, device))
-            ep_terms.append(batchify(terms, device))
-            ep_actions.append(actions)
-            ep_logprobs.append(logprobs)
-            ep_values.append(values.flatten())
-            if args.action_masks:
-                ep_action_masks.append(s_masks)
-
-            # compute episodic return
-            total_episodic_return += batchify(rewards, device).cpu().numpy()
-            ep_step += 1
-            # if we reach termination or truncation, end
-            if any([terms[a] for a in terms]) or any([truncs[a] for a in truncs]):
-                end_step = ep_step
-                end_steps.append(end_step)
-                # completed_eps += 1
-                # batch_episodic_return.append(sum(total_episodic_return))
-                # batch_episodic_difference.append(total_episodic_return[0] - total_episodic_return[1])
-                # batch_n_cars.append(env_funct.n_cars)
-
-                return {
-                    'obs': ep_obs,
-                    'rewards': ep_rewards,
-                    'terms': ep_terms,
-                    'actions': ep_actions,
-                    'logprobs': ep_logprobs,
-                    'values': ep_values,
-                    'action_masks': ep_action_masks,
-                    'total_episodic_return': total_episodic_return,
-                    'end_step': end_step
-                }
 
 
 def batchify_obs(obs, device):
@@ -263,8 +206,8 @@ def get_gradient_norm(model):
     return total_norm
 
 if __name__ == "__main__":
-    args = parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # args = parse_args()
+
     print("----------- RUN DETAILS -----------")
     print(f"Experiment Name: {args.exp_name}")
     print(f"Total Timesteps: {args.total_timesteps}")
@@ -304,6 +247,7 @@ if __name__ == "__main__":
     obs_size = env.observation_space(env.possible_agents[0]).shape
     ind_obs_size = 9
     """ LEARNER SETUP """
+
     agent = Agent(ind_obs_size).to(device)
     # optimizer = optim.Adam(agent.parameters(), lr=0.001, eps=1e-5)
     lr = args.learning_rate
@@ -358,10 +302,72 @@ if __name__ == "__main__":
         batch_episodic_return = []
         batch_episodic_difference = []
         batch_n_cars = []
-        # breakpoint()
         # run_episode(env)
         # with Pool() as p:
         #     results = p.map(run_episode, [env] * args.eps_per_update)
+        def run_episode(env_funct, agent=agent, args=args):
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            with torch.no_grad():
+
+                next_obs, info = env_funct.reset()
+                total_episodic_return = np.zeros(env_funct.num_agents, dtype=np.float64 )
+
+                ep_step = 0
+                ep_obs = []
+                ep_rewards = []
+                ep_terms = []
+                ep_actions = []
+                ep_logprobs = []
+                ep_values = []
+                ep_action_masks = []
+
+                while env_funct.agents:
+                    # rb_action_masks[batch_step] = torch.tensor([False, False, False])
+                    # global_step += 1
+                    obs = batchify_obs(next_obs, device)
+                    # if args.action_masks:
+                    s_masks = torch.tensor([info[agt]['action_mask'] for agt in env_funct.agents])
+                    actions, logprobs, _, values = agent.get_action_and_value(obs, action_masks=s_masks)
+                    # else:
+                    #     actions, logprobs, _, values = agent.get_action_and_value(obs)
+
+                    # execute the environment and log data
+                    next_obs, rewards, terms, truncs, infos = env_funct.step(
+                        unbatchify(actions, env_funct)
+                    )
+
+                    ep_obs.append(obs)
+                    ep_rewards.append(batchify(rewards, device))
+                    ep_terms.append(batchify(terms, device))
+                    ep_actions.append(actions)
+                    ep_logprobs.append(logprobs)
+                    ep_values.append(values.flatten())
+                    if args.action_masks:
+                        ep_action_masks.append(s_masks)
+
+                    # compute episodic return
+                    total_episodic_return += batchify(rewards, device).cpu().numpy()
+                    ep_step += 1
+                    # if we reach termination or truncation, end
+                    if any([terms[a] for a in terms]) or any([truncs[a] for a in truncs]):
+                        end_step = ep_step
+                        # end_steps.append(end_step)
+                        # completed_eps += 1
+                        # batch_episodic_return.append(sum(total_episodic_return))
+                        # batch_episodic_difference.append(total_episodic_return[0] - total_episodic_return[1])
+                        # batch_n_cars.append(env_funct.n_cars)
+
+                        return {
+                            'obs': ep_obs,
+                            'rewards': ep_rewards,
+                            'terms': ep_terms,
+                            'actions': ep_actions,
+                            'logprobs': ep_logprobs,
+                            'values': ep_values,
+                            'action_masks': ep_action_masks,
+                            'total_episodic_return': total_episodic_return,
+                            'end_step': end_step
+                        }
         p = Pool()
         process_pool = p.map_async(run_episode, [env] * args.eps_per_update)
         results = process_pool.get()
@@ -383,7 +389,7 @@ if __name__ == "__main__":
             rb_values[x] = batch_values[x]
             if args.action_masks:
                 rb_action_masks[x] = batch_action_masks[x]
-
+        completed_eps += args.eps_per_update
         # rb_obs[batch_step] = batch_obs[batch_step]
 
 
