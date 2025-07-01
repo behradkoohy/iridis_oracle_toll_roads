@@ -3,9 +3,11 @@ from collections import Counter
 from dataclasses import dataclass, field
 from functools import partial
 from multiprocessing import Pool
+from os import times
 from random import randint, choices
 from typing import Any
 
+from PIL.ImagePalette import random
 from gymnasium.spaces import Discrete, Box
 from pettingzoo import ParallelEnv
 import numpy as np
@@ -16,6 +18,9 @@ from TNTP_Parser import parse_network_file, read_trips_file, build_connectivity,
     precompute_routes_for_od_pairs, sample_trips, compute_travel_times, calculate_incoming_flows_per_link, \
     precompute_all_route_indices, compute_route_travel_time_from_cache, compute_route_toll_price_from_cache, \
     compute_route_metrics_from_cache
+
+# Pricing functions import
+from pricing import LinearPricing, FixedPricing, UnboundPricing
 from queue import PriorityQueue
 
 @dataclass(order=True)
@@ -38,11 +43,14 @@ class TNTPParallelEnv(ParallelEnv):
     def __init__(self,
                  timesteps=3600,
                  simulation_time=86400,
-                 k_depth = 2,
+                 k_depth=2,
                  random_initial_road_cost=False,
                  tntp_path="/Users/behradkoohy/Development/TransportationNetworks/SiouxFalls/SiouxFalls",
                  lambd=0.9,
-                 free_roads=False
+                 free_roads=False,
+                 pricing_mode="step",
+                 pricing_params=None,
+                 seed=None
         ):
         """
         Initializes the environment.
@@ -75,11 +83,9 @@ class TNTPParallelEnv(ParallelEnv):
         self.bound = 1
         self.price_lower_bound = self.bound
         self.price_upper_bound = 125
-        self.pricing_dict = {
-            -1: lambda x: max(x - self.bound, self.bound),
-            0: lambda x: x,
-            1: lambda x: min(x + self.bound, self.price_upper_bound),
-        }
+
+        self.pricing_mode = pricing_mode
+        self.pricing_params = pricing_params or []
 
         # define the paths for the trip and network files
         net_path = tntp_path + "_net.tntp"
@@ -101,6 +107,20 @@ class TNTPParallelEnv(ParallelEnv):
                 range(self.network_metadata['NUMBER OF LINKS'])
             )
         )
+        self.num_links = len(self.possible_agents)
+
+        # instantiate the appropriate PricingStrategy
+        if pricing_mode == "linear":
+            self.pricing_strategy = LinearPricing()
+        elif pricing_mode == "fixed":
+            self.pricing_strategy = FixedPricing()
+        elif pricing_mode == "unbound":
+            self.pricing_strategy = UnboundPricing()
+        else:
+            self.pricing_strategy = None
+        # reset strategy with parameters if present
+        if self.pricing_strategy is not None:
+            self.pricing_strategy.reset(self.pricing_params, self)
 
         # building a connectivity and index mapping dict
         self.connectivity, self.link_index = build_connectivity(self.link_data)
@@ -155,7 +175,7 @@ class TNTPParallelEnv(ParallelEnv):
             self.route_buckets.setdefault(L, []).append((route, idx))
 
         # print({x: len(y) for x, y in self.routes_to_offer.items()})
-        self.reset()
+        self.reset(seed=seed)
 
     def sample_trips(self, max_time, vot_dist='dagum', timeseed=None, votseed=None):
         """
@@ -165,23 +185,33 @@ class TNTPParallelEnv(ParallelEnv):
         def normalise_dist(np_arr):
             return (np_arr - np_arr.min()) / (np_arr.max() - np_arr.min())
 
+        self.seeded_dist = np.random.default_rng(votseed)
+
+        # norm.random_state = seeded_dist
+        # Ensure the seed is set for reproducibility
         supported_vot_dists = {
-            'normal': lambda x: normalise_dist(norm.rvs(size=x, random_state=votseed)),
-            'dagum': lambda x: normalise_dist(mielke.rvs(22020.6, 2.7926, size=x, random_state=votseed)),
-            'uniform': lambda x: normalise_dist(uniform.rvs(size=x, random_state=votseed))
+            'normal': lambda x: normalise_dist(norm.rvs(size=x, random_state=self.seeded_dist)),
+            'dagum': lambda x: normalise_dist(mielke.rvs(22020.6, 2.7926, size=x, random_state=self.seeded_dist)),
+            'uniform': lambda x: normalise_dist(uniform.rvs(size=x, random_state=self.seeded_dist))
         }
+
+
+        # supported_vot_dists = {
+        #     'normal': lambda x: normalise_dist(norm.rvs(size=x, random_state=votseed)),
+        #     'dagum': lambda x: normalise_dist(mielke.rvs(22020.6, 2.7926, size=x, random_state=votseed)),
+        #     'uniform': lambda x: normalise_dist(uniform.rvs(size=x, random_state=votseed))
+        # }
 
 
         assert vot_dist in supported_vot_dists.keys(), "vot_dist must be one of {}".format(supported_vot_dists.keys())
 
-        if timeseed:
-            np.random.seed(timeseed)
-
-        trips = sample_trips(self.od_matrix)
+        # if timeseed:
+        #     np.random.seed(timeseed)
+        trips = sample_trips(self.od_matrix, random_state=None if timeseed is None else np.random.RandomState(timeseed))
         trips = [trip for trip in trips if trip['entry_time'] <= max_time]
 
-        if timeseed:
-            np.random.seed(None)
+        # if timeseed:
+        #     np.random.seed(timeseed)
 
         # Set up the player dictionaries here
         player_vots = supported_vot_dists[vot_dist](len(trips))
@@ -237,7 +267,7 @@ class TNTPParallelEnv(ParallelEnv):
         self.free_roads = free_roads
 
         # precompute the number of players that arrive at each timestep.
-        self.arrival_spread = Counter([trip['entry_time'] for trip in self.sample_trips(self.timesteps)])
+        self.arrival_spread = Counter([trip['entry_time'] for trip in self.sample_trips(self.timesteps, timeseed=seed, votseed=seed)])
 
         # self.trip_departure_times = {}
         # for x in range(self.timesteps):
@@ -444,12 +474,21 @@ class TNTPParallelEnv(ParallelEnv):
         # e.g. {'route_0': np.int64(1), 'route_1': np.int64(0), 'route_2': np.int64(0)}
         # update road prices
         if not self.free_roads:
-            self.tolls = self.tolls + np.array(
-                list(self.actions.values())
-            ) - 1
-            self.tolls = np.clip(self.tolls, self.price_lower_bound, self.price_upper_bound)
+            # step-mode discrete adjustments
+            if self.pricing_mode == "step" or self.pricing_strategy is None:
+                values = np.array(list(self.actions.values()), dtype=int)
+                deltas = values - 1
+                self.tolls = self.tolls + deltas
+            else:
+                # delegate to instantiated PricingStrategy
+                self.tolls = self.pricing_strategy.get_tolls(self, self.time)
+
+            # clip to bounds
+            self.tolls = np.clip(self.tolls,
+                                 self.price_lower_bound,
+                                 self.price_upper_bound)
         else:
-            self.tolls = np.array([0 for _ in list(self.link_index.keys())])
+            self.tolls = np.zeros_like(self.tolls)
         # calculate new road travel times
         self.travel_times_vectorized = compute_travel_times(
             self.flows,
@@ -482,10 +521,16 @@ class TNTPParallelEnv(ParallelEnv):
                 # we need to calculate the quantal response funct so we're going to use a variation of the softmax fn
                 route_utility = np.exp(route_utility - np.max(route_utility))
                 route_utility = route_utility / np.sum(route_utility)
-                # route_choice = np.random.choice(player_routes, p=route_utility)
-                route_choice = choices(player_routes, weights=route_utility)
+                # breakpoint()
+                player_routes_enum = [(i, x) for i, x in enumerate(route_utility)]
+                route_choice = self.seeded_dist.choice([p[0] for p in player_routes_enum], size=1, p=[p[1] for p in player_routes_enum])
+                route_choice = player_routes[route_choice[0]]
+                next_location = route_choice[1]  # Get the next location from the chosen route
 
-                next_location = route_choice[0][1]
+                # route_choice = choices(player_routes, weights=route_utility)
+                # next_location = route_choice[0][1]
+                # print(route_choice, next_location)
+
                 time_to_travel = self.route_travel_times[(player['current_location'], next_location)]
                 cost_to_travel = self.route_toll_cost[(player['current_location'], next_location)]
                 player['toll_paid'] += cost_to_travel

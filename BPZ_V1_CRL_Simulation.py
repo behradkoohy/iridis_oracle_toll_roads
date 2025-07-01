@@ -38,11 +38,14 @@ def parse_args():
                         help="fix initial road costs or randomize them")
     parser.add_argument("--lambd", type=float, default=0.9,
                         help="lambda paramater for QRE")
-    parser.add_argument("--tntp_path", type=str, default="/Users/behradkoohy/Development/TransportationNetworks/SiouxFalls/SiouxFalls",
+    # parser.add_argument("--tntp_path", type=str, default="/Users/behradkoohy/Development/TransportationNetworks/SiouxFalls/SiouxFalls",
+    #                     help="Path to TNTP files")
+    parser.add_argument("--tntp_path", type=str,
+                        default="/Users/behradkoohy/Development/TransportationNetworks/Small-Seq-Example/Small-Seq-Example",
                         help="Path to TNTP files")
 
     # Algorithm Parameters
-    parser.add_argument("--num-episodes", type=int, default=100,
+    parser.add_argument("--num-episodes", type=int, default=10000,
                         help="total episodes of the experiments")
     parser.add_argument("--num-steps", type=int, default=5500,
                         help="the number of steps to run in each environment per policy rollout")
@@ -80,7 +83,8 @@ def parse_args():
     args = parser.parse_args()
     args.batch_size = 512
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_steps = ((args.num_steps + 1) * 5)
+    # args.num_steps = ((args.num_steps + 1) * 5)
+    args.num_steps = ((args.num_steps + 1) * args.eps_per_update)
     args.total_timesteps = args.timesteps * args.num_episodes
     # fmt: on
     return args

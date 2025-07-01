@@ -2,7 +2,7 @@ import argparse
 import os
 import time
 
-from multiprocess import Pool
+from multiprocessing import Pool
 from itertools import chain
 
 import numpy as np
@@ -22,6 +22,9 @@ import inequalipy as ineq
 
 from BigPZEnv import TNTPParallelEnv
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 
 def parse_args():
     # fmt: off
@@ -29,11 +32,11 @@ def parse_args():
     # Run Settings
     parser.add_argument("--exp-name", type=str, default=os.path.basename(__file__).rstrip(".py"),
         help="the name of this experiment")
-    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=False,
+    parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=False,
         help="if toggled, this experiment will be tracked with Weights and Biases")
 
     # Environment Parameters
-    parser.add_argument("--timesteps", type=int, default=3600,
+    parser.add_argument("--timesteps", type=int, default=1800,
                         help="total episodes of the experiments")
     parser.add_argument("--k_depth", type=int, default=2,
                         help="depth of routes offered")
@@ -41,7 +44,10 @@ def parse_args():
                         help="fix initial road costs or randomize them")
     parser.add_argument("--lambd", type=float, default=0.9,
                         help="lambda paramater for QRE")
-    parser.add_argument("--tntp_path", type=str, default="C:\\Users\\Behrad\\PycharmProjects\\iridis_oracle_toll_roads\\TransportationNetworks-master\\SiouxFalls\\SiouxFalls",
+    # parser.add_argument("--tntp_path", type=str, default="/Users/behradkoohy/Development/TransportationNetworks/SiouxFalls/SiouxFalls",
+    #                     help="Path to TNTP files")
+    parser.add_argument("--tntp_path", type=str,
+                        default="/Users/behradkoohy/Development/TransportationNetworks/Small-Seq-Example/Small-Seq-Example",
                         help="Path to TNTP files")
 
     # Algorithm Parameters
@@ -83,7 +89,8 @@ def parse_args():
     args = parser.parse_args()
     args.batch_size = 512
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_steps = ((args.num_steps + 1) * 5)
+    # args.num_steps = ((args.num_steps + 1) * 5)
+    args.num_steps = ((args.num_steps + 1) * args.eps_per_update)
     args.total_timesteps = args.timesteps * args.num_episodes
     # fmt: on
     return args
@@ -205,6 +212,64 @@ def get_gradient_norm(model):
     total_norm = total_norm ** 0.5
     return total_norm
 
+def init_worker(env_kwargs, model_state_dict, device_str, ind_obs_size):
+    global ENV, AGENT, DEVICE
+    DEVICE = torch.device("cpu")
+    ENV    = TNTPParallelEnv(**env_kwargs)
+    AGENT  = Agent(ind_obs_size).to(DEVICE)
+    AGENT.load_state_dict(model_state_dict)
+    AGENT.eval()
+
+
+def run_episode(_):
+    with torch.no_grad():
+        next_obs, info = ENV.reset()
+        total_episodic_return = np.zeros(ENV.num_agents, dtype=np.float64)
+        ep_step = 0
+        ep_obs = []
+        ep_rewards = []
+        ep_terms = []
+        ep_actions = []
+        ep_logprobs = []
+        ep_values = []
+        ep_action_masks = []
+
+        while ENV.agents:
+            obs = batchify_obs(next_obs, device)
+            s_masks = torch.tensor([info[agt]['action_mask'] for agt in ENV.agents])
+            actions, logprobs, _, values = AGENT.get_action_and_value(obs, action_masks=s_masks)
+
+            next_obs, rewards, terms, truncs, infos = ENV.step(
+                unbatchify(actions, ENV)
+            )
+
+            ep_obs.append(obs)
+            ep_rewards.append(batchify(rewards, device))
+            ep_terms.append(batchify(terms, device))
+            ep_actions.append(actions)
+            ep_logprobs.append(logprobs)
+            ep_values.append(values.flatten())
+            if args.action_masks:
+                ep_action_masks.append(s_masks)
+
+            total_episodic_return += batchify(rewards, device).cpu().numpy()
+            ep_step += 1
+            info = infos  # update info for next step
+
+        end_step = ep_step
+        return {
+            'obs': ep_obs,
+            'rewards': ep_rewards,
+            'terms': ep_terms,
+            'actions': ep_actions,
+            'logprobs': ep_logprobs,
+            'values': ep_values,
+            'action_masks': ep_action_masks,
+            'total_episodic_return': total_episodic_return,
+            'end_step': end_step
+        }
+
+
 if __name__ == "__main__":
     # args = parse_args()
 
@@ -216,6 +281,8 @@ if __name__ == "__main__":
     print("-----------      END     -----------")
     run_name = f"MMRP_Online__5EpisodesPerRollOut:MinimiseTT__{args.total_timesteps}__{args.k_depth}__{int(time.time())}"
     n_timesteps = args.timesteps
+
+
     if args.track:
         import wandb
 
@@ -288,236 +355,201 @@ if __name__ == "__main__":
     completed_eps = 0
     pbar = tqdm(range(args.num_episodes), position=0, leave=False, colour='green')
     global_step = 0
-    while completed_eps < args.num_episodes:
-        end_step = 0
-        end_steps = []
-        batch_step = 0
+    # env_pool = [TNTPParallelEnv(
+    #     timesteps=args.timesteps,
+    #     k_depth=args.k_depth,
+    #     tntp_path=args.tntp_path,
+    #     random_initial_road_cost=args.random_init_road_cost,
+    #     lambd=args.lambd
+    # )] * args.eps_per_update
 
-        if args.anneal_lr:
-            frac = 1.0 - (completed_eps / args.num_episodes)
-            lrnow = frac * args.learning_rate
-            optimizer.param_groups[0]["lr"] = lrnow
-            optimizer.param_groups[1]["lr"] = lrnow
+    env_kwargs = {
+        'timesteps': args.timesteps,
+        'k_depth': args.k_depth,
+        'tntp_path': args.tntp_path,
+        'random_initial_road_cost': args.random_init_road_cost,
+        'lambd': args.lambd
+    }
+    model_state = agent.state_dict()
+    device_str = str(device)
 
-        batch_episodic_return = []
-        batch_episodic_difference = []
-        batch_n_cars = []
-        # run_episode(env)
-        # with Pool() as p:
-        #     results = p.map(run_episode, [env] * args.eps_per_update)
-        def run_episode(env_funct, agent=agent, args=args):
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            with torch.no_grad():
+    with Pool(
+            processes=args.eps_per_update,
+            initializer=init_worker,
+            initargs=(env_kwargs, model_state, device_str, ind_obs_size)
+    ) as pool:
 
-                next_obs, info = env_funct.reset()
-                total_episodic_return = np.zeros(env_funct.num_agents, dtype=np.float64 )
+        while completed_eps < args.num_episodes:
+            end_step = 0
+            end_steps = []
+            batch_step = 0
 
-                ep_step = 0
-                ep_obs = []
-                ep_rewards = []
-                ep_terms = []
-                ep_actions = []
-                ep_logprobs = []
-                ep_values = []
-                ep_action_masks = []
+            if args.anneal_lr:
+                frac = 1.0 - (completed_eps / args.num_episodes)
+                lrnow = frac * args.learning_rate
+                optimizer.param_groups[0]["lr"] = lrnow
+                optimizer.param_groups[1]["lr"] = lrnow
 
-                while env_funct.agents:
-                    # rb_action_masks[batch_step] = torch.tensor([False, False, False])
-                    # global_step += 1
-                    obs = batchify_obs(next_obs, device)
-                    # if args.action_masks:
-                    s_masks = torch.tensor([info[agt]['action_mask'] for agt in env_funct.agents])
-                    actions, logprobs, _, values = agent.get_action_and_value(obs, action_masks=s_masks)
-                    # else:
-                    #     actions, logprobs, _, values = agent.get_action_and_value(obs)
+            batch_episodic_return = []
+            batch_episodic_difference = []
+            batch_n_cars = []
+            # run_episode(env)
+            # with Pool() as p:
+            #     results = p.map(run_episode, [env] * args.eps_per_update)
 
-                    # execute the environment and log data
-                    next_obs, rewards, terms, truncs, infos = env_funct.step(
-                        unbatchify(actions, env_funct)
-                    )
-
-                    ep_obs.append(obs)
-                    ep_rewards.append(batchify(rewards, device))
-                    ep_terms.append(batchify(terms, device))
-                    ep_actions.append(actions)
-                    ep_logprobs.append(logprobs)
-                    ep_values.append(values.flatten())
-                    if args.action_masks:
-                        ep_action_masks.append(s_masks)
-
-                    # compute episodic return
-                    total_episodic_return += batchify(rewards, device).cpu().numpy()
-                    ep_step += 1
-                    # if we reach termination or truncation, end
-                    if any([terms[a] for a in terms]) or any([truncs[a] for a in truncs]):
-                        end_step = ep_step
-                        # end_steps.append(end_step)
-                        # completed_eps += 1
-                        # batch_episodic_return.append(sum(total_episodic_return))
-                        # batch_episodic_difference.append(total_episodic_return[0] - total_episodic_return[1])
-                        # batch_n_cars.append(env_funct.n_cars)
-
-                        return {
-                            'obs': ep_obs,
-                            'rewards': ep_rewards,
-                            'terms': ep_terms,
-                            'actions': ep_actions,
-                            'logprobs': ep_logprobs,
-                            'values': ep_values,
-                            'action_masks': ep_action_masks,
-                            'total_episodic_return': total_episodic_return,
-                            'end_step': end_step
-                        }
-        p = Pool()
-        process_pool = p.map_async(run_episode, [env] * args.eps_per_update)
-        results = process_pool.get()
-        batch_obs = list(chain.from_iterable([result['obs'] for result in results]))
-        batch_rewards = list(chain.from_iterable([result['rewards'] for result in results]))
-        batch_terms = list(chain.from_iterable([result['terms'] for result in results]))
-        batch_actions = list(chain.from_iterable([result['actions'] for result in results]))
-        batch_logprobs = list(chain.from_iterable([result['logprobs'] for result in results]))
-        batch_values = list(chain.from_iterable([result['values'] for result in results]))
-        batch_action_masks = list(chain.from_iterable([result['action_masks'] for result in results]))
-        batch_ter = list(chain.from_iterable([result['total_episodic_return'] for result in results]))
-        batch_step = sum(([result['end_step'] for result in results]))
-        for x in range(batch_step):
-            rb_obs[x] = batch_obs[x]
-            rb_rewards[x] = batch_rewards[x]
-            rb_terms[x] = batch_terms[x]
-            rb_actions[x] = batch_actions[x]
-            rb_logprobs[x] = batch_logprobs[x]
-            rb_values[x] = batch_values[x]
-            if args.action_masks:
-                rb_action_masks[x] = batch_action_masks[x]
-        completed_eps += args.eps_per_update
-        # rb_obs[batch_step] = batch_obs[batch_step]
-
-
-        pbar.update(args.eps_per_update)
-        with torch.no_grad():
-            rb_advantages = torch.zeros_like(rb_rewards).to(device)
-            lastgaelam = 0
-            # for t in reversed(range(end_step)):
-            for t in reversed(range(batch_step)):
-                delta = (
-                        rb_rewards[t]
-                        + args.gamma * rb_values[t + 1] * (1 - rb_terms[t + 1])
-                        - rb_values[t]
-                )
-                rb_advantages[t] = lastgaelam = (
-                        delta + args.gamma * args.gae_lambda * (1 - rb_terms[t + 1]) * lastgaelam
-                )
-            rb_returns = rb_advantages + rb_values
-        b_obs = torch.flatten(rb_obs[:batch_step], start_dim=0, end_dim=1)
-        b_logprobs = torch.flatten(rb_logprobs[:batch_step + 1], start_dim=0, end_dim=1)
-        b_actions = torch.flatten(rb_actions[:batch_step + 1], start_dim=0, end_dim=1)
-        b_returns = torch.flatten(rb_returns[:batch_step + 1], start_dim=0, end_dim=1)
-        b_values = torch.flatten(rb_values[:batch_step + 1], start_dim=0, end_dim=1)
-        b_advantages = torch.flatten(rb_advantages[:batch_step + 1], start_dim=0, end_dim=1)
-        if args.action_masks:
-            b_action_masks = torch.flatten(rb_action_masks[:batch_step + 1], start_dim=0, end_dim=1)
-        # Optimizing the policy and value network
-        b_index = np.arange(len(b_obs))
-        clip_fracs = []
-        for repeat in range(args.update_epochs):
-            # shuffle the indices we use to access the data
-            np.random.shuffle(b_index)
-            for start in range(0, len(b_obs), args.batch_size):
-                # select the indices we want to train on
-                end = start + args.batch_size
-                batch_index = b_index[start:end]
+            # process_pool = p.map_async(run_episode, [env] * args.eps_per_update)
+            # process_pool = p.map(run_episode, [env] * args.eps_per_update)
+            # process_pool = pool.map(run_episode, env_pool)
+            results = pool.map(run_episode, [None] * args.eps_per_update)
+            # results = process_pool
+            batch_obs = list(chain.from_iterable([result['obs'] for result in results]))
+            batch_rewards = list(chain.from_iterable([result['rewards'] for result in results]))
+            batch_terms = list(chain.from_iterable([result['terms'] for result in results]))
+            batch_actions = list(chain.from_iterable([result['actions'] for result in results]))
+            batch_logprobs = list(chain.from_iterable([result['logprobs'] for result in results]))
+            batch_values = list(chain.from_iterable([result['values'] for result in results]))
+            batch_action_masks = list(chain.from_iterable([result['action_masks'] for result in results]))
+            batch_ter = list(chain.from_iterable([result['total_episodic_return'] for result in results]))
+            batch_step = sum(([result['end_step'] for result in results]))
+            for x in range(batch_step):
+                rb_obs[x] = batch_obs[x]
+                rb_rewards[x] = batch_rewards[x]
+                rb_terms[x] = batch_terms[x]
+                rb_actions[x] = batch_actions[x]
+                rb_logprobs[x] = batch_logprobs[x]
+                rb_values[x] = batch_values[x]
                 if args.action_masks:
-                    _, newlogprob, entropy, value = agent.get_action_and_value(
-                        b_obs[batch_index], b_actions.long()[batch_index], action_masks=b_action_masks[batch_index]
+                    rb_action_masks[x] = batch_action_masks[x]
+            completed_eps += args.eps_per_update
+            # rb_obs[batch_step] = batch_obs[batch_step]
+
+
+            pbar.update(args.eps_per_update)
+            with torch.no_grad():
+                rb_advantages = torch.zeros_like(rb_rewards).to(device)
+                lastgaelam = 0
+                # for t in reversed(range(end_step)):
+                for t in reversed(range(batch_step)):
+                    delta = (
+                            rb_rewards[t]
+                            + args.gamma * rb_values[t + 1] * (1 - rb_terms[t + 1])
+                            - rb_values[t]
                     )
-                else:
-                    _, newlogprob, entropy, value = agent.get_action_and_value(
-                        b_obs[batch_index], b_actions.long()[batch_index]
+                    rb_advantages[t] = lastgaelam = (
+                            delta + args.gamma * args.gae_lambda * (1 - rb_terms[t + 1]) * lastgaelam
                     )
-                logratio = newlogprob - b_logprobs[batch_index]
-                ratio = logratio.exp()
-
-                with torch.no_grad():
-                    # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                    old_approx_kl = (-logratio).mean()
-                    approx_kl = ((ratio - 1) - logratio).mean()
-                    clip_fracs += [
-                        ((ratio - 1.0).abs() > args.clip_coef).float().mean().item()
-                    ]
-
-                # normalize advantaegs
-                advantages = b_advantages[batch_index]
-                advantages = (advantages - advantages.mean()) / (
-                        advantages.std() + 1e-8
-                )
-
-                pg_loss1 = -advantages * ratio
-                pg_loss2 = -advantages * torch.clamp(
-                    ratio, 1 - args.clip_coef, 1 + args.clip_coef
-                )
-                pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-
-                # Value loss
-                value = value.flatten()
-
-                if args.clip_vloss:
-                    v_loss_unclipped = (value - b_returns[batch_index]) ** 2
-                    v_clipped = b_values[batch_index] + torch.clamp(
-                        value - b_values[batch_index],
-                        -args.clip_coef,
-                        args.clip_coef,
+                rb_returns = rb_advantages + rb_values
+            b_obs = torch.flatten(rb_obs[:batch_step], start_dim=0, end_dim=1)
+            b_logprobs = torch.flatten(rb_logprobs[:batch_step + 1], start_dim=0, end_dim=1)
+            b_actions = torch.flatten(rb_actions[:batch_step + 1], start_dim=0, end_dim=1)
+            b_returns = torch.flatten(rb_returns[:batch_step + 1], start_dim=0, end_dim=1)
+            b_values = torch.flatten(rb_values[:batch_step + 1], start_dim=0, end_dim=1)
+            b_advantages = torch.flatten(rb_advantages[:batch_step + 1], start_dim=0, end_dim=1)
+            if args.action_masks:
+                b_action_masks = torch.flatten(rb_action_masks[:batch_step + 1], start_dim=0, end_dim=1)
+            # Optimizing the policy and value network
+            b_index = np.arange(len(b_obs))
+            clip_fracs = []
+            for repeat in range(args.update_epochs):
+                # shuffle the indices we use to access the data
+                np.random.shuffle(b_index)
+                for start in range(0, len(b_obs), args.batch_size):
+                    # select the indices we want to train on
+                    end = start + args.batch_size
+                    batch_index = b_index[start:end]
+                    if args.action_masks:
+                        _, newlogprob, entropy, value = agent.get_action_and_value(
+                            b_obs[batch_index], b_actions.long()[batch_index], action_masks=b_action_masks[batch_index]
                         )
-                    v_loss_clipped = (v_clipped - b_returns[batch_index]) ** 2
-                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                    v_loss = 0.5 * v_loss_max.mean()
-                else:
-                    v_loss = 0.5 * ((value - b_returns[batch_index]) ** 2).mean()
-                entropy_loss = entropy.mean()
-                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
-                # print("Value loss:", v_loss, ", Policy Loss", pg_loss)
-                optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
-                optimizer.step()
+                    else:
+                        _, newlogprob, entropy, value = agent.get_action_and_value(
+                            b_obs[batch_index], b_actions.long()[batch_index]
+                        )
+                    logratio = newlogprob - b_logprobs[batch_index]
+                    ratio = logratio.exp()
 
-            # print("Value loss:", v_loss.item(), ", Policy Loss", pg_loss.item())
-            # for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
-            #     grad_norm = get_gradient_norm(mdl)
-            #     print(f"{name} Gradient Norm: {grad_norm}")
-        y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
-        var_y = np.var(y_true)
-        explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-        if args.track:
-            writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
-            writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-            writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
-            writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
-            writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
-            writer.add_scalar("losses/clipfrac", np.mean(clip_fracs), global_step)
-            writer.add_scalar("losses/explained_variance", explained_var, global_step)
-            # for agt_tr in range(num_agents):
-            #     writer.add_scalar(f"losses/agent_{agt_tr}_advantage", rb_advantages[:, agt_tr].mean().item(), global_step)
-            #     writer.add_scalar(f"losses/agent_{agt_tr}_logprobs", rb_logprobs[:, agt_tr].max().item(), global_step)
-            #     writer.add_scalar(f"losses/agent_{agt_tr}_returns_means", rb_returns[:, agt_tr].mean().item(), global_step)
-            #     writer.add_scalar(f"losses/agent_{agt_tr}_returns_vars", rb_returns[:, agt_tr].var().item(), global_step)
-            #     # writer.add_scalar(f"road/road_{agt_tr}_profit", env.road_profits[agt_tr], global_step)
-            #     # writer.add_scalar(f"road/road_{agt_tr}_price_range", env.agent_price_range[agt_tr], global_step)
-            #     # writer.add_scalar(f"road/road_{agt_tr}_max_price", env.agent_maxes[agt_tr], global_step)
-            #     # writer.add_scalar(f"road/road_{agt_tr}_min_price", env.agent_mins[agt_tr], global_step)
-            #     # writer.add_scalar(f"road/road_{agt_tr}_med_price", np.median(env.agent_prices[agt_tr]), global_step)
-            for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
-                grad_norm = get_gradient_norm(mdl)
-                # print(f"{name} Gradient Norm: {grad_norm}")
-                writer.add_scalar(f"losses/{name}_grad_norm", grad_norm, global_step)
+                    with torch.no_grad():
+                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                        old_approx_kl = (-logratio).mean()
+                        approx_kl = ((ratio - 1) - logratio).mean()
+                        clip_fracs += [
+                            ((ratio - 1.0).abs() > args.clip_coef).float().mean().item()
+                        ]
 
-            writer.add_scalar(
-                "losses/sum_total_episodic_return",
-                np.sum(total_episodic_return),
-                global_step,
-            )
-            writer.add_scalar(
-                "charts/SPS", int(global_step / (time.time() - start_time)), global_step
-            )
+                    # normalize advantaegs
+                    advantages = b_advantages[batch_index]
+                    advantages = (advantages - advantages.mean()) / (
+                            advantages.std() + 1e-8
+                    )
+
+                    pg_loss1 = -advantages * ratio
+                    pg_loss2 = -advantages * torch.clamp(
+                        ratio, 1 - args.clip_coef, 1 + args.clip_coef
+                    )
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+                    # Value loss
+                    value = value.flatten()
+
+                    if args.clip_vloss:
+                        v_loss_unclipped = (value - b_returns[batch_index]) ** 2
+                        v_clipped = b_values[batch_index] + torch.clamp(
+                            value - b_values[batch_index],
+                            -args.clip_coef,
+                            args.clip_coef,
+                            )
+                        v_loss_clipped = (v_clipped - b_returns[batch_index]) ** 2
+                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                        v_loss = 0.5 * v_loss_max.mean()
+                    else:
+                        v_loss = 0.5 * ((value - b_returns[batch_index]) ** 2).mean()
+                    entropy_loss = entropy.mean()
+                    loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                    # print("Value loss:", v_loss, ", Policy Loss", pg_loss)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                    optimizer.step()
+
+                # print("Value loss:", v_loss.item(), ", Policy Loss", pg_loss.item())
+                # for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
+                #     grad_norm = get_gradient_norm(mdl)
+                #     print(f"{name} Gradient Norm: {grad_norm}")
+            y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+            var_y = np.var(y_true)
+            explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+            if args.track:
+                writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
+                writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
+                writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+                writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
+                writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
+                writer.add_scalar("losses/clipfrac", np.mean(clip_fracs), global_step)
+                writer.add_scalar("losses/explained_variance", explained_var, global_step)
+                # for agt_tr in range(num_agents):
+                #     writer.add_scalar(f"losses/agent_{agt_tr}_advantage", rb_advantages[:, agt_tr].mean().item(), global_step)
+                #     writer.add_scalar(f"losses/agent_{agt_tr}_logprobs", rb_logprobs[:, agt_tr].max().item(), global_step)
+                #     writer.add_scalar(f"losses/agent_{agt_tr}_returns_means", rb_returns[:, agt_tr].mean().item(), global_step)
+                #     writer.add_scalar(f"losses/agent_{agt_tr}_returns_vars", rb_returns[:, agt_tr].var().item(), global_step)
+                #     # writer.add_scalar(f"road/road_{agt_tr}_profit", env.road_profits[agt_tr], global_step)
+                #     # writer.add_scalar(f"road/road_{agt_tr}_price_range", env.agent_price_range[agt_tr], global_step)
+                #     # writer.add_scalar(f"road/road_{agt_tr}_max_price", env.agent_maxes[agt_tr], global_step)
+                #     # writer.add_scalar(f"road/road_{agt_tr}_min_price", env.agent_mins[agt_tr], global_step)
+                #     # writer.add_scalar(f"road/road_{agt_tr}_med_price", np.median(env.agent_prices[agt_tr]), global_step)
+                for name, mdl in zip(['Actor', 'Critic'], [agent.actor, agent.critic]):
+                    grad_norm = get_gradient_norm(mdl)
+                    # print(f"{name} Gradient Norm: {grad_norm}")
+                    writer.add_scalar(f"losses/{name}_grad_norm", grad_norm, global_step)
+                writer.add_scalar(
+                    "losses/sum_total_episodic_return",
+                    np.sum(total_episodic_return),
+                    global_step,
+                )
+                writer.add_scalar(
+                    "charts/SPS", int(global_step / (time.time() - start_time)), global_step
+                )
+
+
     with torch.no_grad():
         print('evaluating')
         trained_agent_means_tt = []
@@ -525,6 +557,7 @@ if __name__ == "__main__":
         trained_agent_means_cc = []
         trained_agent_means_pr = []
         for episode in trange(50):
+            # env.timesteps = 3600
             obs, infos = env.reset(seed=episode)
             obs = batchify_obs(obs, device)
             while env.agents:
@@ -594,7 +627,7 @@ if __name__ == "__main__":
             obs = batchify_obs(obs, device)
             while env.agents:
                 actions = {agent: env.action_space(agent).sample() for agent in env.agents}
-                obs, rewards, terms, truncs, infos = env.step(unbatchify(actions, env))
+                obs, rewards, terms, truncs, infos = env.step(actions)
                 obs = batchify_obs(obs, device)
                 terms = [terms[a] for a in terms]
                 truncs = [truncs[a] for a in truncs]
@@ -642,7 +675,7 @@ if __name__ == "__main__":
             obs = batchify_obs(obs, device)
             while env.agents:
                 actions = {agent: env.action_space(agent).sample() for agent in env.agents}
-                obs, rewards, terms, truncs, infos = env.step(unbatchify(actions, env))
+                obs, rewards, terms, truncs, infos = env.step(actions)
                 obs = batchify_obs(obs, device)
                 terms = [terms[a] for a in terms]
                 truncs = [truncs[a] for a in truncs]

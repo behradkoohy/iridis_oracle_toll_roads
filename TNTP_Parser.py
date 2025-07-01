@@ -50,7 +50,7 @@ def read_trips_file(path):
     return metadata, matrix
 
 
-def sample_trips(od_matrix, simulation_time=86400, dt=60, profile=None):
+def sample_trips(od_matrix, simulation_time=86400, dt=60, profile=None, random_state=None):
     """
     Converts an OD flow matrix into a list of trips.
 
@@ -84,14 +84,18 @@ def sample_trips(od_matrix, simulation_time=86400, dt=60, profile=None):
                     expected_trips = total_trips * profile(t) * dt
 
                 # Sample number of trips using a Poisson distribution
-                n_trips = np.random.poisson(expected_trips)
+                if random_state is not None:
+                    n_trips = random_state.poisson(expected_trips)
+
+                else:
+                    n_trips = np.random.poisson(expected_trips)
 
                 # For each trip, add an entry to the trip list.
                 for _ in range(n_trips):
                     trips.append({
                         "origin": origin,
                         "destination": destination,
-                        "entry_time": t  + random.randint(0, dt - 1)  # randomize within [t, t+dt)
+                        "entry_time": t  + random_state.randint(0, dt - 1)  # randomize within [t, t+dt)
                         # "entry_time": t  # could randomize within [t, t+dt) if desired
                     })
 
@@ -522,7 +526,6 @@ def compute_route_travel_time_from_cache(route_key, cached_indices, travel_times
     indices = cached_indices[tuple(route_key)]
     # return travel_times_vectorised[indices].sum()
     return sum_over_indices(indices, travel_times_vectorised)
-
 
 def compute_route_toll_price_from_cache(route_key, cached_indices, route_toll_vectorised):
     """
