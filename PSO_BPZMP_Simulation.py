@@ -23,20 +23,30 @@ def parse_args():
     # parser.add_argument("--tntp_path", type=str,
                         # default="/Users/behradkoohy/Development/TransportationNetworks/Small-Seq-Example/Small-Seq-Example",
                         # help="Path to TNTP files")
+    # parser.add_argument("--tntp_path", type=str,
+    #                     default="/Users/behradkoohy/Development/TransportationNetworks/SiouxFalls/SiouxFalls",
+    #                     help="Path to TNTP files")
     parser.add_argument("--tntp_path", type=str,
-                        default="/Users/behradkoohy/Development/TransportationNetworks/SiouxFalls/SiouxFalls",
+                        default="C:\\Users\\Behrad\\PycharmProjects\\iridis_oracle_toll_roads\\TransportationNetworks-master\\Small-Seq-Example\\Small-Seq-Example",
                         help="Path to TNTP files")
-    parser.add_argument("--timesteps", type=int, default=1800,
+    parser.add_argument("--timesteps", type=int, default=10,
                         help="total episodes of the experiments")
-    parser.add_argument('--num_iterations', type=int, default=100, help='Number of iterations for PSO')
-    parser.add_argument('--num_particles', type=int, default=20, help='Number of particles in PSO')
-    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=False)
+    parser.add_argument('--num_iterations', type=int, default=180, help='Number of iterations for PSO')
+    parser.add_argument('--num_particles', type=int, default=10, help='Number of particles in PSO')
+    parser.add_argument("--track", type=bool, help="Track the experiment with Weights and Biases", default=True)
     parser.add_argument(
         "--pricing_mode",
         type=str,
         choices=["step", "linear", "fixed", "unbound"],
         default="fixed",
         help="Pricing mode to optimize: 'step', 'linear', 'fixed' or 'unbound'."
+    )
+    parser.add_argument(
+        "--vot_dist",
+        type=str,
+        choices=["normal", "dagum", "uniform"],
+        default="uniform",
+        help="Choice of vot distribution to sample"
     )
     parser.add_argument("--n_seeds_train", type=int, default=10, help="Number of random seeds for evaluation")
     parser.add_argument("--n_seeds_eval", type=int, default=50, help="Number of random seeds for evaluation")
@@ -87,7 +97,8 @@ def evaluate_across_seeds(solutions):
                 timesteps=args.timesteps,
                 pricing_mode=args.pricing_mode,
                 pricing_params=particle.tolist(),
-                seed=seed
+                seed=seed,
+                vot_dist=args.vot_dist,
             )
             sol_copy = particle.tolist()
             score = evaluate_solution(sol_copy, env, seed, args)
@@ -117,7 +128,8 @@ def post_evaluate_across_seeds(solutions):
                 timesteps=args.timesteps,
                 pricing_mode=args.pricing_mode,
                 pricing_params=particle.tolist(),
-                seed=seed
+                seed=seed,
+                vot_dist=args.vot_dist,
             )
             sol_copy = particle.tolist()
             score = evaluate_solution(sol_copy, env, seed, args)
@@ -137,7 +149,8 @@ def run_exp(args):
         timesteps=args.timesteps,
         pricing_mode=args.pricing_mode,
         pricing_params=[],
-        seed=1
+        seed=1,
+        vot_dist=args.vot_dist,
     )
     # Compute the PSO dimension based on pricing_mode
     if args.pricing_mode == "step":
@@ -207,7 +220,8 @@ def run_exp(args):
     )
     # cost, pos = optimizer.optimize(evaluate_solution, iters=args.num_iterations)
     # we want to evaluate the solution across multiple seeds
-    cost, pos = optimizer.optimize(evaluate_across_seeds, iters=args.num_iterations, n_processes=10)
+    cost, pos = optimizer.optimize(evaluate_across_seeds, iters=args.num_iterations, n_processes=5)
+    # cost, pos = optimizer.optimize(evaluate_across_seeds, iters=args.num_iterations)
     # Convert solution vector to list
     pos_not_list = pos
     pos = pos.tolist()
@@ -225,6 +239,10 @@ def run_exp(args):
     # )
     # total_reward = evaluate_solution(pos.copy(), env, seed=1, args=args)
     # print(f"Total reward for the optimized solution: {total_reward}")
+    if args.track:
+        wandb.run.summary["opt_cost_hist"] = optimizer.cost_history
+        wandb.run.summary["training_cost"] = cost
+
 
 
     plot_cost_history(cost_history=optimizer.cost_history)
@@ -232,24 +250,35 @@ def run_exp(args):
     if args.track:
         print("evaluating begin")
         trained_agent_means_tt = []
+        trained_agent_gini_tt = []
         trained_agent_means_sc = []
+        trained_agent_gini_sc = []
         trained_agent_means_cc = []
+        trained_agent_gini_cc = []
         for seed in trange(args.n_seeds_eval):
             env = TNTPParallelEnv(
                 tntp_path=args.tntp_path,
                 timesteps=args.timesteps,
                 pricing_mode=args.pricing_mode,
                 pricing_params=pos_not_list.tolist(),
-                seed=seed
+                seed=seed,
+                vot_dist=args.vot_dist,
             )
             # sol_copy = pos.tolist()
             score = evaluate_solution(pos, env, seed, args)
             trained_agent_means_tt.append(gmean(env.travel_time))
+            trained_agent_gini_tt.append(env.gini_tt)
             trained_agent_means_sc.append(gmean(env.time_cost_burden))
+            trained_agent_gini_sc.append(env.gini_sc)
             trained_agent_means_cc.append(gmean(env.combined_cost))
+            trained_agent_gini_cc.append(env.gini_cc)
+
         wandb.run.summary["trained_travel_times"] = trained_agent_means_tt
+        wandb.run.summary["gini_travel_time"] = trained_agent_gini_tt
         wandb.run.summary["trained_social_costs"] = trained_agent_means_sc
+        wandb.run.summary["gini_social_costs"] = trained_agent_gini_sc
         wandb.run.summary["trained_combined_costs"] = trained_agent_means_cc
+        wandb.run.summary["gini_combined_costs"] = trained_agent_gini_cc
         print(trained_agent_means_tt, trained_agent_means_sc, trained_agent_means_cc)
 
 
@@ -278,7 +307,7 @@ if __name__ == "__main__":
     )
 
     # Initialize the environment
-    env = TNTPParallelEnv(tntp_path=args.tntp_path, timesteps=args.timesteps, seed=1)
+    # env = TNTPParallelEnv(tntp_path=args.tntp_path, timesteps=args.timesteps, seed=1)
 
     # Run the experiment
     run_exp(args)

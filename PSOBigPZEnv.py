@@ -9,6 +9,7 @@ from typing import Any
 
 from PIL.ImagePalette import random
 from gymnasium.spaces import Discrete, Box
+from inequipy.inequipy import gini
 from pettingzoo import ParallelEnv
 import numpy as np
 from scipy.stats import mielke, norm, uniform
@@ -50,7 +51,8 @@ class TNTPParallelEnv(ParallelEnv):
                  free_roads=False,
                  pricing_mode="step",
                  pricing_params=None,
-                 seed=None
+                 seed=None,
+                 vot_dist=None,
         ):
         """
         Initializes the environment.
@@ -83,6 +85,8 @@ class TNTPParallelEnv(ParallelEnv):
         self.bound = 1
         self.price_lower_bound = self.bound
         self.price_upper_bound = 125
+
+        self.vot_dist = vot_dist
 
         self.pricing_mode = pricing_mode
         self.pricing_params = pricing_params or []
@@ -182,8 +186,9 @@ class TNTPParallelEnv(ParallelEnv):
         Dagum distribution parameters:
         â = 22020.6, b = 2.7926, and c = 0.2977
         """
+
         def normalise_dist(np_arr):
-            return (np_arr - np_arr.min()) / (np_arr.max() - np_arr.min())
+            return ((np_arr - np_arr.min()) / (np_arr.max() - np_arr.min())) + 1e-9
 
         self.seeded_dist = np.random.default_rng(votseed)
 
@@ -207,7 +212,7 @@ class TNTPParallelEnv(ParallelEnv):
 
         # if timeseed:
         #     np.random.seed(timeseed)
-        trips = sample_trips(self.od_matrix, random_state=None if timeseed is None else np.random.RandomState(timeseed))
+        trips = sample_trips(self.od_matrix, random_state=None if timeseed is None else np.random.RandomState(timeseed), seed_value=None if timeseed is None else timeseed)
         trips = [trip for trip in trips if trip['entry_time'] <= max_time]
 
         # if timeseed:
@@ -262,12 +267,12 @@ class TNTPParallelEnv(ParallelEnv):
         # Example:
         # observations = {agent: self._get_initial_observation(agent) for agent in self.agents}
         # return observations
-        self.trips = self.sample_trips(self.timesteps, timeseed=seed, votseed=seed)
+        self.trips = self.sample_trips(self.timesteps, timeseed=seed, votseed=seed, vot_dist=self.vot_dist)
         self.completed_players = []
         self.free_roads = free_roads
 
         # precompute the number of players that arrive at each timestep.
-        self.arrival_spread = Counter([trip['entry_time'] for trip in self.sample_trips(self.timesteps, timeseed=seed, votseed=seed)])
+        self.arrival_spread = Counter([trip['entry_time'] for trip in self.sample_trips(self.timesteps, timeseed=seed, votseed=seed, vot_dist=self.vot_dist)])
 
         # self.trip_departure_times = {}
         # for x in range(self.timesteps):
@@ -578,8 +583,11 @@ class TNTPParallelEnv(ParallelEnv):
             terminations = {a: True for a in self.possible_agents}
             # DO EVAL HERE
             self.travel_time = [player['time_travelled'] for player in self.completed_players]
+            self.gini_tt = gini(self.travel_time)
             self.time_cost_burden = [player['time_travelled']*player['vot'] for player in self.completed_players]
+            self.gini_sc = gini(self.time_cost_burden)
             self.combined_cost = [(player['time_travelled']*player['vot']) + player['toll_paid'] for player in self.completed_players]
+            self.gini_cc = gini(self.combined_cost)
 
         return observations, rewards, terminations, truncations, infos
 

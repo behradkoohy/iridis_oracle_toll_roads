@@ -49,8 +49,9 @@ def read_trips_file(path):
 
     return metadata, matrix
 
+trips_cache = {}
 
-def sample_trips(od_matrix, simulation_time=86400, dt=60, profile=None, random_state=None):
+def sample_trips(od_matrix, simulation_time=86400, dt=60, profile=None, random_state=None, seed_value=None):
     """
     Converts an OD flow matrix into a list of trips.
 
@@ -59,12 +60,15 @@ def sample_trips(od_matrix, simulation_time=86400, dt=60, profile=None, random_s
       simulation_time: total simulation time in seconds (default 86400 for 24 hours)
       dt: time step in seconds (default 60 seconds for 1 minute)
       profile: optional function f(t) that gives the fraction of trips at time t (must be normalized)
+      random_state: optional random state for sampling trips
 
     Returns:
       A list of dictionaries, each representing a trip with keys "origin", "destination", and "entry_time".
     """
     trips = []
     num_intervals = simulation_time // dt
+    if random_state is not None and trips_cache.get(seed_value) is not None:
+        return trips_cache[seed_value]
 
     for origin in od_matrix:
         for destination, total_trips in od_matrix[origin].items():
@@ -101,6 +105,10 @@ def sample_trips(od_matrix, simulation_time=86400, dt=60, profile=None, random_s
 
     # Optionally, sort trips by entry time
     trips.sort(key=lambda x: x["entry_time"])
+    if seed_value is not None:
+        if random_state is not None and trips_cache.get(seed_value) is None:
+            trips_cache[seed_value] = trips
+
     return trips
 
 
